@@ -1,7 +1,12 @@
-# rs-imshow Sample
+# RealSense Depth Compression Algorithm
 
 ## Overview
-This example is a "hello-world" code snippet for Intel RealSense cameras integration with OpenCV. The sample will open an OpenCV UI window and render colorized depth stream to it. 
+This project deals with 16-bit dpeth image compression for RealseCameras. 
+The idea is to convert the image to a seudo-vectorized shape, using curve fiting strategies.
+This also has integration with OpenCV. 
+The APP with both a sample file and also it  will open an OpenCV UI window and render colorized depth stream to it. 
+
+For lossless compression, the ZSTD library is used.
 The following code snippet is used to create `cv::Mat` from `rs2::frame`:
 ```cpp
 // Query frame size (width and height)

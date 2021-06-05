@@ -486,8 +486,7 @@ public:
 		size_t srcSize = vectorized.size() * 2;
 
 		size_t const cBuffSize = ZSTD_compressBound(srcSize);
-
-		
+				
 		auto start = high_resolution_clock::now();
 
 		size_t const outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, compression_level);

@@ -12,7 +12,6 @@
 using namespace std::chrono;
 
 
-//bitStream* bitS;
 splineCompression* splLinear, *splBiQubic, *splLossLess;
 
 /**

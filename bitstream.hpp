@@ -4,12 +4,10 @@
 #include<fstream>
 #include <mutex>
 #include <chrono>
+#include <omp.h>
 
 #include "zstd.h"
-
-
-
-#include "intSeqCompression.hpp"
+#include "u_ProcessTime.h"
 
 using namespace std::chrono;
 
@@ -78,112 +76,97 @@ static ushort float_to_half(const float x) { // IEEE-754 16-bit floating-point f
 }
 ///////////////////////////////////////////////////
 ////////////////////////////////////////////
-template <class TYPE>
-class PolynomialRegression {
-public:
-
-	PolynomialRegression();
-	virtual ~PolynomialRegression() {};
-
-	bool fitIt(
+static bool fitIt(
 		float* x,
 		float* y,
 		const int &             order,
-		float*     coeffs, int nelements);
-};
+		float*     coeffs, int nelements)
+	{
 
-template <class TYPE>
-PolynomialRegression<TYPE>::PolynomialRegression() {};
+		size_t N = nelements;
 
-template <class TYPE>
-bool PolynomialRegression<TYPE>::fitIt(
-	float* x,
-	float* y,
-	const int &             order,
-	float*     coeffs, int nelements)
-{
-	
-	size_t N = nelements;
+		int n = order;
+		int np1 = n + 1;
+		int np2 = n + 2;
+		int tnp1 = 2 * n + 1;
+		float tmp;
 
-	int n = order;
-	int np1 = n + 1;
-	int np2 = n + 2;
-	int tnp1 = 2 * n + 1;
-	TYPE tmp;
-
-	// X = vector that stores values of sigma(xi^2n)
-	std::vector<TYPE> X(tnp1);
-	for (int i = 0; i < tnp1; ++i) {
-		X[i] = 0;
-		for (int j = 0; j < N; ++j)
-			X[i] += (TYPE)pow(x[j], i);
-	}
-
-	// a = vector to store final coefficients.
-	std::vector<TYPE> a(np1);
-
-	// B = normal augmented matrix that stores the equations.
-	std::vector<std::vector<TYPE> > B(np1, std::vector<TYPE>(np2, 0));
-
-	for (int i = 0; i <= n; ++i)
-		for (int j = 0; j <= n; ++j)
-			B[i][j] = X[i + j];
-
-	// Y = vector to store values of sigma(xi^n * yi)
-	std::vector<TYPE> Y(np1);
-	for (int i = 0; i < np1; ++i) {
-		Y[i] = (TYPE)0;
-		for (int j = 0; j < N; ++j) {
-			Y[i] += (TYPE)pow(x[j], i)*y[j];
+		// X = vector that stores values of sigma(xi^2n)
+		float X[10];
+		for (int i = 0; i < tnp1; ++i) {
+			X[i] = 0;
+			for (int j = 0; j < N; ++j)
+				X[i] += (float)pow(x[j], i);
 		}
-	}
 
-	// Load values of Y as last column of B
-	for (int i = 0; i <= n; ++i)
-		B[i][np1] = Y[i];
+		// a = vector to store final coefficients.
+		//std::vector<float> a(np1);
+		float a[10];
+		for (int i = 0; i < np1; ++i) a[i] = 0.0;
 
-	n += 1;
-	int nm1 = n - 1;
+		// B = normal augmented matrix that stores the equations.
+		//std::vector<std::vector<float> > B(np1, std::vector<float>(np2, 0));
+		float B[10][10];
 
-	// Pivotisation of the B matrix.
-	for (int i = 0; i < n; ++i)
-		for (int k = i + 1; k < n; ++k)
-			if (B[i][i] < B[k][i])
-				for (int j = 0; j <= n; ++j) {
-					tmp = B[i][j];
-					B[i][j] = B[k][j];
-					B[k][j] = tmp;
-				}
-
-	// Performs the Gaussian elimination.
-	// (1) Make all elements below the pivot equals to zero
-	//     or eliminate the variable.
-	for (int i = 0; i < nm1; ++i)
-		for (int k = i + 1; k < n; ++k) {
-			TYPE t = B[k][i] / B[i][i];
+		for (int i = 0; i <= n; ++i)
 			for (int j = 0; j <= n; ++j)
-				B[k][j] -= t * B[i][j];         // (1)
+				B[i][j] = X[i + j];
+
+		// Y = vector to store values of sigma(xi^n * yi)
+		float Y[10];
+		for (int i = 0; i < np1; ++i) {
+			Y[i] = (float)0;
+			for (int j = 0; j < N; ++j) {
+				Y[i] += (float)pow(x[j], i)*y[j];
+			}
 		}
 
-	// Back substitution.
-	// (1) Set the variable as the rhs of last equation
-	// (2) Subtract all lhs values except the target coefficient.
-	// (3) Divide rhs by coefficient of variable being calculated.
-	for (int i = nm1; i >= 0; --i) {
-		a[i] = B[i][n];                   // (1)
-		for (int j = 0; j < n; ++j)
-			if (j != i)
-				a[i] -= B[i][j] * a[j];       // (2)
-		a[i] /= B[i][i];                  // (3)
-	}
+		// Load values of Y as last column of B
+		for (int i = 0; i <= n; ++i)
+			B[i][np1] = Y[i];
 
-	
-	for (size_t i = 0; i < a.size(); ++i)
-		coeffs[i] = a[i];
+		n += 1;
+		int nm1 = n - 1;
 
-	return true;
-}
+		// Pivotisation of the B matrix.
+		for (int i = 0; i < n; ++i)
+			for (int k = i + 1; k < n; ++k)
+				if (B[i][i] < B[k][i])
+					for (int j = 0; j <= n; ++j) {
+						tmp = B[i][j];
+						B[i][j] = B[k][j];
+						B[k][j] = tmp;
+					}
 
+		// Performs the Gaussian elimination.
+		// (1) Make all elements below the pivot equals to zero
+		//     or eliminate the variable.
+		for (int i = 0; i < nm1; ++i)
+			for (int k = i + 1; k < n; ++k) {
+				float t = B[k][i] / B[i][i];
+				for (int j = 0; j <= n; ++j)
+					B[k][j] -= t * B[i][j];         // (1)
+			}
+
+		// Back substitution.
+		// (1) Set the variable as the rhs of last equation
+		// (2) Subtract all lhs values except the target coefficient.
+		// (3) Divide rhs by coefficient of variable being calculated.
+		for (int i = nm1; i >= 0; --i)
+		{
+			a[i] = B[i][n];                   // (1)
+			for (int j = 0; j < n; ++j)
+				if (j != i)
+					a[i] -= B[i][j] * a[j];       // (2)
+			a[i] /= B[i][i];                  // (3)
+		}
+
+
+		for (size_t i = 0; i < np1; ++i)
+			coeffs[i] = a[i];
+
+		return true;
+};
 ///////////////////////////////////////////////////
 ////////////////////////////////////////////
 class depthRasterCompression
@@ -206,6 +189,15 @@ public:
 	{
 		return mt;
 	}
+
+	virtual size_t encode(cv::Mat _m, std::string fn)
+	{
+		this->mt = _m.clone();
+		cv::imwrite(fn, mt);
+
+		return get_file_size(fn);
+	}
+
 	virtual size_t saveToFile(std::string fn)
 	{
 		//using default writer
@@ -213,7 +205,7 @@ public:
 
 		return get_file_size(fn);
 	}
-	virtual cv::Mat readFromFile(std::string fn)
+	virtual cv::Mat decode(std::string fn)
 	{
 		mt = cv::imread(fn, -1);
 		return mt;
@@ -303,9 +295,7 @@ public:
 				ys.push_back(value);
 			}
 
-			PolynomialRegression<float> pr;
-			std::vector<float> cf;
-			pr.fitIt((float*)xs.data(), (float*)ys.data(), 3, coefs,xs.size());
+			fitIt((float*)xs.data(), (float*)ys.data(), 3, coefs,xs.size());
 		}
 		
 	}
@@ -318,9 +308,12 @@ public:
 	std::vector<spline_data> splines;
 	int h, w;
 	int quantizationMode = LOSSLESS_COMPRESSION;
-	unsigned short* outBuffer;
+	unsigned short* outBuffer = NULL;
+	unsigned short* compBuffer = NULL;
+	unsigned short* inBuffer = NULL;
 
-	int compression_level = 3;
+	int zstd_compression_level = 1;
+	int freePixelsRemoval = 1;
 	splineCompression(int m)
 	{
 		quantizationMode = m;
@@ -382,17 +375,22 @@ public:
 		std::cout << "----------------------------" << "\n";
 
 		std::mutex mtx;
-
-		outBuffer  = (unsigned short*)malloc(m.cols * m.rows * 2);
+		if (!outBuffer) 	outBuffer  = (unsigned short*)malloc(m.cols * m.rows * 2);
 
 		h = m.rows;
 		w = m.cols;
+		
+		std::vector< std::vector<spline_data>> all_splines;
 
-		splines.clear();
+		for (int i = 0; i < 12; i++) all_splines.push_back(std::vector<spline_data>());
+
+		startProcess("createFromImage" + compressionModes[quantizationMode]);
 		/// For all pixels
 #pragma omp parallel for
 		for (int y = 0; y < m.rows; y++)
 		{
+			int th_ID = omp_get_thread_num();
+
 			for (int x = 0; x < m.cols; x++)
 			{
 				unsigned short value = m.at<unsigned short>(y, x);
@@ -428,20 +426,70 @@ public:
 
 				p.fit(quantizationMode);
 
-				mtx.lock();
+			
 				// discard lonely values
 				if (quantizationMode == LOSSLESS_COMPRESSION)
 				{
-					splines.push_back(p);
+					all_splines[th_ID].push_back(p);
 				}
 				else
-					if (p.values.size() > 1)
+					if (p.values.size() >= freePixelsRemoval)
 					{
-						splines.push_back(p);
+						all_splines[th_ID].push_back(p);
 					}
-				mtx.unlock();
 			}
 		}
+
+		endProcess("createFromImage" + compressionModes[quantizationMode]);
+		splines.clear();
+
+
+		for (int i = 0; i < all_splines.size(); i++)
+			for (int j = 0; j < all_splines[i].size(); j++)
+				splines.push_back(all_splines[i][j]);
+		
+
+
+	}
+
+	virtual size_t encode(cv::Mat _m, std::string fn)
+	{
+		
+		createFromImage(_m);
+
+		unsigned int size = 0;
+		startProcess("encode" + compressionModes[quantizationMode]);
+		vectorizeSplines();
+		/////////////////////////////////////////////////////
+	  // Compress using LZ4
+		char* srcBuffer = (char*)vectorized.data();
+		size_t srcSize = vectorized.size() * 2;
+
+		size_t const cBuffSize = ZSTD_compressBound(srcSize);
+
+		size_t const outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
+
+		double compressRate = (float)(outSize) / (w*h * 2);
+		
+		endProcess("encode" + compressionModes[quantizationMode]);
+
+		if (fn != "")
+		{
+			std::ofstream out(fn, std::ios::out | std::ios::binary);
+			if (!out)
+			{
+				std::cout << "Cannot open output file\n";
+				return 0;
+			}
+
+			// bin mask
+			out.write((const char*)outBuffer, outSize);
+
+
+			out.close();
+		}
+
+		return outSize;
 
 	}
 	
@@ -453,13 +501,13 @@ public:
 		m.create(h, w, CV_16UC1);
 		m.setTo(0);
 
-
 		int maxLength = 0;
-		for (auto& sp : splines)
+#pragma omp parallel for
+		for (int i = 0 ; i<splines.size(); i++)
 		{
+			spline_data sp = splines[i];
 			unsigned short value = 0;
 
-			maxLength += sp.values.size();
 			for (int i = 0; i < sp.values_count; i++)
 			{
 				unsigned short y = sp.y0;
@@ -489,9 +537,9 @@ public:
 				
 		auto start = high_resolution_clock::now();
 
-		size_t const outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, compression_level);
+		size_t const outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
 		auto duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
-		std::cout << " TIME ZSTD " << duration.count() << "\n";
+		//std::cout << " TIME ZSTD " << duration.count() << "\n";
 
 		double compressRate = (float)(outSize) / (w*h * 2);
 		std::cout << "We successfully compressed some data! " << outSize << "Ratio: " << compressRate << "\n";
@@ -517,11 +565,13 @@ public:
 
 	}
 
-	virtual cv::Mat readFromFile(std::string fn) 	
+	virtual cv::Mat decode(std::string fn) 	
 	{
-
+		h = 768;
+		w = 1024;
 		size_t outSize = get_file_size(fn);
 
+		/// Prepare DATA
 		std::ifstream input(fn, std::ios::binary | std::ios::in);
 		if (!input)
 		{
@@ -529,19 +579,23 @@ public:
 			return cv::Mat();
 		}
 		
-		unsigned short* compBuffer, *inBuffer ;
-
 		size_t srcSize = 1024 * 768 * 2;
 		
-
-		inBuffer = (unsigned short*)malloc(srcSize);		
-		compBuffer = (unsigned short*)malloc(outSize);
+		if (!inBuffer)
+		{
+			inBuffer = (unsigned short*)malloc(srcSize);
+			compBuffer = (unsigned short*)malloc(srcSize);
+		}
 
 		for (int i = 0; i < srcSize; i++) inBuffer[0];
-		for (int i = 0; i < outSize; i++) compBuffer[0];
+		for (int i = 0; i < srcSize; i++) compBuffer[0];
 
 		input.read((char*)compBuffer, outSize);
 
+		////////////////////////////
+		input.close();
+
+		startProcess("decode" + compressionModes[quantizationMode]);
 		// bin mask
 		size_t decSz = ZSTD_decompress(inBuffer, srcSize, compBuffer, outSize);
 
@@ -576,17 +630,14 @@ public:
 				{
 					float coef0 = inBuffer[index]; index++;
 					float coef1 = inBuffer[index]; index++;
-
 					sp.coefs[0] = coef0;
 					sp.coefs[1] = coef1;
 					sp.coefs[2] = 0.0;
 					sp.coefs[3] = 0.0;
 				}
 				else
+				if (quantizationMode == SPLINE_COMPRESSION)
 				{
-					
-					
-
 					if (sp.values_count >= MIN_SAMPLES_EQ)
 					{
 						float coef0 = inBuffer[index]; index++;
@@ -617,37 +668,17 @@ public:
 
 		this->splines.clear();
 		splines.swap(readSP);
-		////////////////////////////
-		input.close();
-
-		free(inBuffer);
-		free(compBuffer);
-
-		return restoreAsImage();
+	
+		cv::Mat _m = restoreAsImage();
+		
+		endProcess("decode" + compressionModes[quantizationMode]);
+		return _m;
 	}
 
-
-	double compressionRate()
+	~splineCompression()
 	{
-		unsigned int size = 0;
-
-		vectorizeSplines();
-
-		/////////////////////////////////////////////////////
-	  // Compress using LZ4
-		char* srcBuffer = (char*)vectorized.data();
-		size_t srcSize = vectorized.size() * 2;
-
-		size_t const cBuffSize = ZSTD_compressBound(srcSize);
-
-		char* outBuffer = (char*)malloc(srcSize);
-		size_t const outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, compression_level);
-
-		double compressRate = (float)(outSize ) / (w*h * 2);
-		std::cout << "We successfully compressed some data! " << outSize  << "Ratio: " << compressRate << "\n";
-
-		return compressRate;
-		
+		free(inBuffer);
+		free(compBuffer);
 	}
 
 
@@ -731,397 +762,4 @@ public:
 		cv::imshow("histo"+ compressionModes[quantizationMode], histImg);
 		//std::cout << "End HistDisplay" << std::endl;
 	}
-};
-
-///////////////////////////////////////////////////
-////////////////////////////////////////////
-class bitStream : public depthRasterCompression 
-{
-private:
-  char *data; // where bitstream is contained
-  std::vector < std::vector<short>> nonZeroValuesRows;
-  int size;   // size of the bitstream
-
-  int w, h;
-public:
-	int algorithm = ZSTD_COMPRESSION;
-	int _minThresold = 300;
-	int _maxThresold = 25000;
-
-	int pixelsError = 0;
-	int quantization = 1;
-
-	cv::Mat origImage;
-	cv::Mat computedImage;
-
-	std::vector<short> nonZeroValues;
-	std::vector<short> resampled;
-
-
-	bitStream() 
-	{
-		compressionName = "ZSTD";
-	}
-
-  // returns data as a byte array
-  char *toByteArray() {
-    return data;
-  }
-  /**************************/
-  bool getbit(char x, int y) {
-    return (x >> (7 - y)) & 1;
-  }
-  int chbit(int x, int i, bool v) {
-    if(v) return x | (1 << (7 - i));
-    return x & ~(1 << (7 - i));
-  }
-  /**************************/
-
-  // opens an existing byte array as bitstream
-  void openBytes(char *bytes, int _size) {
-    data = bytes;
-    size = _size;
-  }
-  // creates a new bit stream
-  void open(int _size) {
-
-	if (!data)  data = (char*)malloc(_size);
-	else
-	{
-		for (int i = 0; i < _size; i++) data[i] = 0;
-	}
-
-	nonZeroValues.clear();
-    size = _size;
-  }
-  // closes bit stream (frees memory)
-  void close() {
-    free(data);
-  }
-
-
-  bool startSequence()
-  {
-
-  }
-
-  // convert from image
-  void createFromImage(cv::Mat&m)
-  {
-	  int size = m.cols * m.rows;
-	  this->open(size);
-	  this->w = m.cols;
-	  this->h = m.rows;
-
-	  origImage = m.clone();
-	
-	  pixelsError = 0;
-
-	  nonZeroValuesRows.resize(h);
-
-	  for (int x = 0; x < w; x++)
-		  for (int y = 0; y < h; y++)
-		  {
-			  unsigned short befValue;
-			  if (x == 0) befValue = 0;
-			  else befValue = m.at<unsigned short>(y, x - 1);
-
-			  unsigned short value = m.at<unsigned short>(y, x);
-			  int index = y * w + x;
-
-			  if (value < _minThresold) 
-			  {
-				  m.at<unsigned short>(y, x) = 0;
-				  value = 0; 
-				  pixelsError++;
-			  }
-
-			  if (value > _maxThresold)
-			  {
-				  value = 0;
-				  m.at<unsigned short>(y, x) = 0;
-				  pixelsError++;
-			  }
-			  
-			  data[index / 8] = chbit(data[index / 8], index % 8, value == 0);
-			 // save non zero
-			  if (value > 0)
-			  {
-				  nonZeroValues.push_back(value);
-				  nonZeroValuesRows[y].push_back(value);
-			  }
-			  // if next
-		  }
-	  
-	  int32Encoder::encode(nonZeroValues, resampled, quantization);
-	 
-  }
-
-  cv::Mat getBackGroundAsImage()
-  {
-	  cv::Mat m;
-
-	  m.create(h, w, CV_8UC3);
-	  for (int x = 0; x < w; x++)
-		  for (int y = 0; y < h; y++)
-		  {
-			  int index = y * w + x;
-			  bool value = getbit(data[index / 8], index % 8);
-			  if (value)
-				  m.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255);
-			  else
-				  m.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0);
-		  }
-
-	  return m;
-	  
-  }
-
-  cv::Mat restoreAsImage()
-  {
-	  cv::Mat m;
-
-	  int indexNZ = 0;
-	  m.create(h, w, CV_16UC1);
-	  m.setTo(0);
-
-	  nonZeroValues.clear();
-	  int32Encoder::decode(resampled, nonZeroValues, quantization);
-	
-
-	  for (int x = 0; x < w; x++)
-		  for (int y = 0; y < h; y++)
-		  {
-			  int index = y * w + x;
-
-			  unsigned short befValue;
-			  if (x == 0) befValue = 0;
-			  else befValue = origImage.at<unsigned short>(y, x - 1);
-
-			 
-			  bool value = getbit(data[index / 8], index % 8);
-			  //es background
-			  if (value)
-			  {
-				//  m.at<unsigned short>(y, x) = 0;
-			  }
-			  else
-			  {
-				  if (indexNZ < nonZeroValues.size())
-				  {
-					  m.at<unsigned short>(y, x) = nonZeroValues[indexNZ];
-					  
-					  indexNZ++;
-				  }
-			  }
-		  }
-
-
-	  computedImage = m.clone();
-
-		  
-	  return m;
-
-  }
-
-  int error()
-  {
-	  int accum = 0;
-	  for (int x = 0; x < w; x++)
-		  for (int y = 0; y < h; y++)
-		  {
-			  unsigned short v0 = origImage.at<unsigned short>(y, x);
-			  unsigned short v1 = computedImage.at<unsigned short>(y, x);
-
-			  if (v0 == 0 && v1 == 0) continue;
-			  
-			  if (v0 < _minThresold)continue;
-			  if (v0 > _maxThresold)continue;
-			  
-			  accum += (v0 - v1);
-		  }
-
-	  return accum;
-  }
-  
-  
-  double compressionRate()
-  {
-	  return saveToFileZSTD("");
-  }
-  ////////////////////////////////////////////////////////////
-  // Save using ZTSTD
-  double saveToFileZSTD(std::string filename)
-  {
-	  
-	  /////////////////////////////////////////////////////
-	  // Compress using LZ4
-	  char* srcBuffer = (char*)resampled.data();
-	  size_t srcSize = resampled.size() * 2;
-
-	  char* srcBuffer2 = (char*)data;
-	  size_t srcSize2 = size / 8;
-
-	  size_t const cBuffSize = ZSTD_compressBound(srcSize);
-	  size_t const cBuffSize2 = ZSTD_compressBound(srcSize2);
-
-	  char* outBuffer = (char*)malloc(srcSize);
-	  char* outBuffer2 = (char*)malloc(srcSize2);
-	  char* testBuffer = (char*)malloc(srcSize);
-		  
-	  /* Compress.
-	 * If you are doing many compressions, you may want to reuse the context.
-	 * See the multiple_simple_compression.c example.
-	 */
-	  size_t const outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, 9);
-	  size_t const outSize2 = ZSTD_compress(outBuffer2, cBuffSize2, srcBuffer2, srcSize2, 9);
-
-	  double compressRate = (float)(outSize + outSize2) / (w*h*2);
-	  std::cout << "We successfully compressed some data! " << outSize+ outSize2 << "Ratio: " << compressRate << "\n";
-	 
-	  //////////////
-
-	  ZSTD_decompress(testBuffer, srcSize, outBuffer, outSize);
-
-	  if (filename != "")
-	  {
-		  std::ofstream out(filename, std::ios::out | std::ios::binary);
-		  if (!out)
-		  {
-			  std::cout << "Cannot open output file\n";
-			  return 0;
-		  }
-
-		  // bin mask
-		  out.write((const char*)outBuffer, outSize);
-		  // non zero values
-		  out.write((const char*)outBuffer2, outSize2);
-
-		  out.close();
-	  }
-	
-
-	  /* Validation */
-	  if (memcmp(srcBuffer, testBuffer, srcSize) != 0)
-		  std::cout << "Validation failed.  *src and *new_src are not identical." << "\n";
-
-	  free(outBuffer);   /* no longer useful */
-	  free(outBuffer2);   /* no longer useful */
-	  free(testBuffer);   /* no longer useful */
-
-	
-
-	  return compressRate;
-  }
-
-  /////////////////////////////////////////////
-  // SAve to File using LZ4
-#ifdef LZ4
-  void saveToFileLZ4(std::string filename)
-  {
-	  std::ofstream out(filename, std::ios::out | std::ios::binary);
-	  if (!out)
-	  {
-		  std::cout << "Cannot open output file\n";
-		  return ;
-	  }
-
-	  /////////////////////////////////////////////////////
-	  // Compress using LZ4
-	  char* src = (char*)nonZeroValues.data();
-	  int src_size = nonZeroValues.size() * 2;
-	  
-	  // LZ4 provides a function that will tell you the maximum size of compressed output based on input data via LZ4_compressBound().
-	  const int max_dst_size = LZ4_compressBound(src_size);
-	  // We will use that size for our destination boundary when allocating space.
-	  char* compressed_data = (char*)malloc((size_t)max_dst_size);
-	 
-	  int compressed_data_size = LZ4_compress_default(src, compressed_data, src_size, max_dst_size);
-	  if (compressed_data_size > 0)
-		  std::cout << "We successfully compressed some data! " << compressed_data_size << "Ratio: " << (float)compressed_data_size / src_size << "\n";
-	 
-	  // Not only does a positive return_value mean success, the value returned == the number of bytes required.
-	  // You can use this to realloc() *compress_data to free up memory, if desired.  We'll do so just to demonstrate the concept.
-	  compressed_data = (char *)realloc(compressed_data, (size_t)compressed_data_size);
-	  if (compressed_data == NULL)
-		  std::cout << "Failed to re-alloc memory for compressed_data.  Sad :(" <<"\n";
-
-	  char* src2 = data;
-	  int src_size2 = size / 8;
-
-	  const int max_dst_size2 = LZ4_compressBound(src_size2);
-	  // We will use that size for our destination boundary when allocating space.
-	  char* compressed_data2 = (char*)malloc((size_t)max_dst_size2);
-
-	  int compressed_data_size2 = LZ4_compress_default(src2, compressed_data2, src_size, max_dst_size2);
-	  if (compressed_data_size2 > 0)
-		  std::cout << "We successfully compressed some data! " << compressed_data_size2 << "Ratio: " << (float)compressed_data_size2 / src_size2 << "\n";
-
-	  // Not only does a positive return_value mean success, the value returned == the number of bytes required.
-	  // You can use this to realloc() *compress_data to free up memory, if desired.  We'll do so just to demonstrate the concept.
-	  compressed_data2 = (char *)realloc(compressed_data2, (size_t)compressed_data_size2);
-	  
-
-	  // bin mask
-	  out.write((const char*)compressed_data2, compressed_data_size2);
-	  // non zero values
-	  out.write((const char*)compressed_data, compressed_data_size);
-
-	  free(compressed_data);   /* no longer useful */
-	  free(compressed_data2);   /* no longer useful */
-
-	  out.close();
-  }
-
-#endif
-
-
-  virtual size_t saveToFile(std::string filename)
-  {
-	  saveToFileZSTD(filename);
-
-
-	  return get_file_size(filename);
-  }
-
-  cv::Mat readFromFile(std::string filename)
-  {
-	  std::ifstream input(filename, std::ios::binary);
-	  if (!input)
-	  {
-		  std::cout << "Cannot open input file\n";
-		  return cv::Mat();
-	  }
-	  int nonZeroValuesCount = nonZeroValues.size() ;
-	  nonZeroValues.clear();
-
-	  for (int i = 0; i < nonZeroValuesCount; i++) nonZeroValues.push_back(0);
-
-	  input.read(data, size / 8);
-		// bin mask
-	  input.read((char*)nonZeroValues.data(), nonZeroValuesCount*2);
-	
-	  input.close();
-
-	  return restoreAsImage();
-  }
-
-
-  // writes to bitstream
-  void write(int ind, int bits, int dat) {
-    ind += bits;
-    while(dat) {
-      data[ind / 8] = chbit(data[ind / 8], ind % 8, dat & 1);
-      dat /= 2;
-      ind--;
-    }
-  }
-  // reads from bitstream
-  int read(int ind, int bits) {
-    int dat = 0;
-    for(int i = ind; i < ind + bits; i++) {
-      dat = dat * 2 + getbit(data[i / 8], i % 8);
-    }
-    return dat;
-  }
 };

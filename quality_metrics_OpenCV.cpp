@@ -78,7 +78,7 @@ namespace qm
 	 */
 	double psnr(Mat & img_src, Mat & img_compressed, int block_size)
 	{
-		int D = 255;
+		int D = 15000;
 		
 		if (img_src.type() != CV_64F)
 		{

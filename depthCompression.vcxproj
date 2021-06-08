@@ -22,6 +22,7 @@
     <ClCompile Include="bitstream.hpp" />
     <ClCompile Include="quality_metrics_OpenCV.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="u_ProcessTime.cpp" />
     <ClCompile Include="varintdecode.cpp" />
     <ClCompile Include="vbyte.cpp" />
   </ItemGroup>
@@ -33,6 +34,7 @@
     <ClInclude Include="intSeqCompression.hpp" />
     <ClInclude Include="quality_metrics_OpenCV.h" />
     <ClInclude Include="timer.h" />
+    <ClInclude Include="u_ProcessTime.h" />
     <ClInclude Include="varintdecode.h" />
     <ClInclude Include="vbyte.h" />
   </ItemGroup>

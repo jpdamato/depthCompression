@@ -307,7 +307,7 @@ public:
 
 	std::vector<spline_data> splines;
 	int h, w;
-	int quantizationMode = LOSSLESS_COMPRESSION;
+	unsigned short quantizationMode = LOSSLESS_COMPRESSION;
 	unsigned short* outBuffer = NULL;
 	unsigned short* compBuffer = NULL;
 	unsigned short* inBuffer = NULL;
@@ -482,6 +482,12 @@ public:
 				return 0;
 			}
 
+			out.write((const char*)&w, 2);
+			out.write((const char*)&h, 2);
+			out.write((const char*)&quantizationMode, 2);
+			out.write((const char*)&zstd_compression_level, 2);			
+
+
 			// bin mask
 			out.write((const char*)outBuffer, outSize);
 
@@ -518,8 +524,7 @@ public:
 				m.at<unsigned short>(y, x) = value;
 			}
 		}
-
-		std::cout << "mean length " << (double)maxLength / splines.size();
+				
 		return m;
 	}
 	
@@ -567,9 +572,8 @@ public:
 
 	virtual cv::Mat decode(std::string fn) 	
 	{
-		h = 768;
-		w = 1024;
-		size_t outSize = get_file_size(fn);
+	
+		size_t outSize = get_file_size(fn)-8;
 
 		/// Prepare DATA
 		std::ifstream input(fn, std::ios::binary | std::ios::in);
@@ -586,12 +590,19 @@ public:
 			inBuffer = (unsigned short*)malloc(srcSize);
 			compBuffer = (unsigned short*)malloc(srcSize);
 		}
+		input.read((char*)&w, 2);
+		input.read((char*)&h, 2);
+		input.read((char*)&quantizationMode, 2);
+		input.read((char*)&zstd_compression_level, 2);		
 
+		std::cout << "Decode parameters " << w << "x" << h << " mode " << compressionModes[quantizationMode] << " zip compression "<< zstd_compression_level<<"\n";
+		
+		input.read((char*)compBuffer, outSize);
+		
 		for (int i = 0; i < srcSize; i++) inBuffer[0];
 		for (int i = 0; i < srcSize; i++) compBuffer[0];
 
-		input.read((char*)compBuffer, outSize);
-
+	
 		////////////////////////////
 		input.close();
 

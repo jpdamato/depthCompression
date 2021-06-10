@@ -1,16 +1,17 @@
 // License: Apache 2.0. See LICENSE file in root directory.
 // Copyright(c) 2017 Intel Corporation. All Rights Reserved.
 
-#include <opencv2/opencv.hpp>   // Include OpenCV API
-#include <librealsense2/rs.hpp>
+
 #include <experimental/filesystem>
 #include "bitstream.hpp"
 
 #include "quality_metrics_OpenCV.h"
+#include "cameraCapturer.h"
 
 #include <chrono>
 using namespace std::chrono;
 
+#define CODE_VERSION "7Jun2021"
 
 splineCompression* splLinear, *splBiQubic, *splLossLess;
 
@@ -23,6 +24,31 @@ public:
 	std::string filter_name;                                   //Friendly name of the filter
 	rs2::filter& filter;                                       //The filter in use
 	                       //A boolean controlled by the user that determines whether to apply the filter or not
+};
+
+class InputParser {
+public:
+	InputParser(int &argc, char **argv) {
+		for (int i = 1; i < argc; ++i)
+			this->tokens.push_back(std::string(argv[i]));
+	}
+	/// @author iain
+	const std::string& getCmdOption(const std::string &option) const {
+		std::vector<std::string>::const_iterator itr;
+		itr = std::find(this->tokens.begin(), this->tokens.end(), option);
+		if (itr != this->tokens.end() && ++itr != this->tokens.end()) {
+			return *itr;
+		}
+		static const std::string empty_string("");
+		return empty_string;
+	}
+	/// @author iain
+	bool cmdOptionExists(const std::string &option) const {
+		return std::find(this->tokens.begin(), this->tokens.end(), option)
+			!= this->tokens.end();
+	}
+private:
+	std::vector <std::string> tokens;
 };
 
 
@@ -302,19 +328,8 @@ int processCamera(int cam)
 {
 	try
 	{
-		// Declare depth colorizer for pretty visualization of depth data
-		rs2::colorizer color_map(2);
-
-		// Declare RealSense pipeline, encapsulating the actual device and sensors
-		rs2::pipeline pipe;
-		rs2::config cfg;
-
-		rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
-
-		// Use a configuration object to request only depth from the pipeline
-		cfg.enable_stream(RS2_STREAM_DEPTH, 1024, 0, RS2_FORMAT_Z16, 30);
-		// Start streaming with the above configuration
-		pipe.start(cfg);
+		
+		starCapturing();
 
 		using namespace cv;
 		const auto window_name = "Display Image";
@@ -329,29 +344,16 @@ int processCamera(int cam)
 		splLinear = new splineCompression(LINEAR_COMPRESSION);
 		splBiQubic = new splineCompression(SPLINE_COMPRESSION);
 
+		int w = 1024;
+		int h = 768;
 
 		
 		while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
 		{
-			rs2::frameset data = pipe.wait_for_frames(); // Wait for next set of frames from the camera
-			rs2::frame depthRaw = data.get_depth_frame();
-
-			////////////////////////
-			rs2::frame filtered = temp_filter.process(depthRaw); // Does not copy the frame, only adds a reference
-			depthRaw = filtered;
-
-			rs2::frame depthC = depthRaw.apply_filter(color_map);
-
-			// Query frame size (width and height)
-			const int w = depthC.as<rs2::video_frame>().get_width();
-			const int h = depthC.as<rs2::video_frame>().get_height();
-
-			std::string date = return_current_time_and_date();
-			// read depth matrix
-			Mat depth(Size(w, h), CV_16UC1, (void*)depthRaw.get_data(), Mat::AUTO_STEP);
-
-			// Create OpenCV matrix of size (w,h) from the colorized depth data
-			Mat image(Size(w, h), CV_8UC3, (void*)depthC.get_data(), Mat::AUTO_STEP);
+			
+			cv::Mat depth = getLastDepthFrame();
+			cv::Mat image = getLastRGBFrame();
+		
 
 			if (frameIndex < 100)
 			{
@@ -391,7 +393,6 @@ int processCamera(int cam)
 			cv::imshow("diff", im_colorR);
 
 			
-			cv::putText(image, date, cv::Point(20, 20), 1, 1, cv::Scalar(255, 255, 255));
 			if (accum.cols == 0)	accum = image.clone();
 			else cv::addWeighted(accum, 0.60, image, 0.4, 0, accum);
 
@@ -412,6 +413,9 @@ int processCamera(int cam)
 
 			frameIndex++;
 		}
+
+
+		stopCapturing();
 
 		return EXIT_SUCCESS;
 	}
@@ -434,19 +438,7 @@ int recordScenario(std::string outdir, int maxFrames)
 {
 	try
 	{
-		// Declare depth colorizer for pretty visualization of depth data
-		rs2::colorizer color_map(2);
-
-		// Declare RealSense pipeline, encapsulating the actual device and sensors
-		rs2::pipeline pipe;
-		rs2::config cfg;
-
-		rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
-
-		// Use a configuration object to request only depth from the pipeline
-		cfg.enable_stream(RS2_STREAM_DEPTH, 1024, 0, RS2_FORMAT_Z16, 30);
-		// Start streaming with the above configuration
-		pipe.start(cfg);
+		
 
 		using namespace cv;
 		const auto window_name = "Display Image";
@@ -456,29 +448,16 @@ int recordScenario(std::string outdir, int maxFrames)
 		cv::Mat accum;
 
 		int scanrow = 500;
+		int w = 1024;
+		int h = 768;
 
+		starCapturing();
 
 		while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
 		{
-			rs2::frameset data = pipe.wait_for_frames(); // Wait for next set of frames from the camera
-			rs2::frame depthRaw = data.get_depth_frame();
-
-			////////////////////////
-			rs2::frame filtered = temp_filter.process(depthRaw); // Does not copy the frame, only adds a reference
-			depthRaw = filtered;
-
-			rs2::frame depthC = depthRaw.apply_filter(color_map);
-
-			// Query frame size (width and height)
-			const int w = depthC.as<rs2::video_frame>().get_width();
-			const int h = depthC.as<rs2::video_frame>().get_height();
-
+			cv::Mat depth = getLastDepthFrame();
 			std::string date = return_current_time_and_date();
-			// read depth matrix
-			Mat depth(Size(w, h), CV_16UC1, (void*)depthRaw.get_data(), Mat::AUTO_STEP);
-
-			// Create OpenCV matrix of size (w,h) from the colorized depth data
-			Mat image(Size(w, h), CV_8UC3, (void*)depthC.get_data(), Mat::AUTO_STEP);
+			
 			// create dir
 			if (!dirExists(outdir )) createDirectory(outdir);
 			
@@ -495,12 +474,6 @@ int recordScenario(std::string outdir, int maxFrames)
 			
 			cv::imshow("depth", im_color);
 			
-
-			cv::putText(image, date, cv::Point(20, 20), 1, 1, cv::Scalar(255, 255, 255));
-			if (accum.cols == 0)	accum = image.clone();
-			else cv::addWeighted(accum, 0.60, image, 0.4, 0, accum);
-
-
 			cv::putText(accum, "row " + std::to_string(scanrow), cv::Point(20, 20), 1, 1, cv::Scalar(255, 0, 0));
 
 
@@ -516,6 +489,8 @@ int recordScenario(std::string outdir, int maxFrames)
 			frameIndex++;
 			if (frameIndex == maxFrames) break;
 		}
+
+		stopCapturing();
 
 		return EXIT_SUCCESS;
 	}
@@ -692,18 +667,131 @@ void compareToJ2K(std::string outDir)
 
 }
 
+/////////////////////////////////////////////////
+// Encode image
+void encode(std::string inputF, std::string ouputF, std::string format)
+{
+	cv::Mat m = cv::imread(inputF, -1);
+
+	if (m.cols == 0)
+	{
+		std::cout << "Input image could not be loaded";
+		return;
+	}
+
+	splineCompression* spl = NULL;
+	
+	if (format == "LOSSLESS")
+	{
+		spl = new splineCompression(LOSSLESS_COMPRESSION);
+	}
+	else
+		if (format == "LINEAR")
+		{
+			spl = new splineCompression(LINEAR_COMPRESSION);
+		}
+		else
+			if (format == "CUBIC")
+			{
+				spl = new splineCompression(SPLINE_COMPRESSION);
+			}
+			else
+			{
+				std::cout << "Unknown compression parameter";
+				return;
+			}
+
+	startProcess("encode");
+	spl->encode(m,ouputF);
+
+	double time = endProcess("encode");
+
+	std::cout << "File generated ok. Encode time " << time << "ms \n";
+
+	return;
+}
+
+void decode(std::string inputF, std::string ouputF, std::string format)
+{
+	splineCompression* spl;
+	spl = new splineCompression(LOSSLESS_COMPRESSION);
+	
+	startProcess("decode");
+	cv::Mat m = spl->decode(inputF);
+
+	double time = endProcess("decode");
+
+	cv::imwrite(ouputF, m);
+
+	std::cout << "File generated ok. Decode time " << time << "ms \n";
+
+	return;
+}
+
 int main(int argc, char * argv[])
 {
-	if (argc == 1) processCamera(-1);
-	else
-	{
-		std::string arg0 = argv[1];
+	InputParser input(argc, argv);
 
-		if (arg0 == "J2K") compareToJ2K(argv[2]);
-		else if (arg0 == "record") recordScenario(argv[2], 200);
-		else if (arg0 == "metrics") processDir(argv[2]);
-		else test0();
+	if (input.cmdOptionExists("-h") || (argc == 1))
+	{
+
+		// Do stuff
+		std::cout << "Version  : " << CODE_VERSION << "\n";
+		std::cout << "Commands" << "\n";
+		std::cout << "-encode  -out {outputFile} -in {inputFile} -encoder {LOSSLESS/LINEAR/CUBIR}. Encode file" << "\n";
+		std::cout << "-decode  -out {outputFile} -in {inputFile} -decode {LOSSLESS/LINEAR/CUBIR} " << "\n";
+		std::cout << "-camera  -out {outputDir} -cameraModel {INTEL/OCCIPITAL} . Process detected camera" << "\n";
+		std::cout << "-J2K  -out {outputDir} . Compare to J2K encoder results" << "\n";
+		std::cout << "-metrics -out {outputDir}. Compute metrics from recorded images" << "\n";
+		std::cout << "-record  -out {outputDir} -cameraModel {INTEL/OCCIPITAL}.  Record frames in PGM format " << "\n";
+
+		return 0;
 	}
+
+	if (input.cmdOptionExists("-encode"))
+	{
+		std::string in = input.getCmdOption("-in");
+		std::string out = input.getCmdOption("-out");
+		std::string encoder = input.getCmdOption("-encoder");
+		encode(in, out, encoder);
+	}
+	else
+	if (input.cmdOptionExists("-decode"))
+		{
+		std::string in = input.getCmdOption("-in");
+		std::string out = input.getCmdOption("-out");
+		std::string encoder = input.getCmdOption("-decoder");
+		decode(in, out, encoder);
+		}
+	else
+	if (input.cmdOptionExists("-camera"))
+	{
+		processCamera(-1);
+	}
+	else
+		if (input.cmdOptionExists("-J2K"))
+		{
+			std::string outDir = input.getCmdOption("-out");
+			compareToJ2K(outDir);
+		}
+		else
+	if (input.cmdOptionExists("-record"))
+	{
+		std::string outDir = input.getCmdOption("-out");
+		recordScenario(outDir,200);
+	}
+	else
+	if (input.cmdOptionExists("-metrics"))
+	{
+		std::string outDir = input.getCmdOption("-out");
+		processDir(outDir);
+	}
+	else
+	if (input.cmdOptionExists("-test0"))
+	{
+		test0();
+	}
+	else std::cout << " Unknown command" << "\n";
 }
 
 

@@ -31,6 +31,7 @@
     <None Include="readme.md" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="cameraCapturer.h" />
     <ClInclude Include="intSeqCompression.hpp" />
     <ClInclude Include="quality_metrics_OpenCV.h" />
     <ClInclude Include="timer.h" />
@@ -93,12 +94,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>D:\SDKs\charls-compression\charls-master\include;D:\SDKs\pthread\include;D:\SDKs\OpenCV44\opencv\build\include;C:\Program Files (x86)\Intel RealSense SDK 2.0\include;D:\SDKs\zstd-1.4\zstd\lib;$(IncludePath);$(VC_IncludePath);$(WindowsSDK_IncludePath)</IncludePath>
+    <IncludePath>D:\SDKs\pthread\include;D:\SDKs\OpenCV44\opencv\build\include;C:\Program Files (x86)\Intel RealSense SDK 2.0\include;thirdparty\;$(IncludePath);$(VC_IncludePath);$(WindowsSDK_IncludePath)</IncludePath>
     <OutDir>D:\Proyects\DepthCompression\depthCompression\bin</OutDir>
     <TargetName>depthCompression_d</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>D:\SDKs\charls-compression\charls-master\include;D:\SDKs\pthread\include;D:\SDKs\OpenCV44\opencv\build\include;C:\Program Files (x86)\Intel RealSense SDK 2.0\include;D:\SDKs\zstd-1.4\zstd\lib;$(IncludePath);$(VC_IncludePath);$(WindowsSDK_IncludePath)</IncludePath>
+    <IncludePath>D:\SDKs\OpenCV44\opencv\build\include;C:\Program Files (x86)\Intel RealSense SDK 2.0\include;thirdparty\;$(IncludePath);$(VC_IncludePath);$(WindowsSDK_IncludePath)</IncludePath>
     <OutDir>D:\Proyects\DepthCompression\depthCompression\bin</OutDir>
     <TargetName>depthCompression_r</TargetName>
   </PropertyGroup>
@@ -121,7 +122,7 @@
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>opencv_world440d.lib;realsense2.lib;D:\SDKs\zstd-1.4\zstd\build\VS2010\bin\x64_Debug\libzstd_static.lib;D:\SDKs\charls-compression\x64\Debug\charls.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>opencv_world440d.lib;realsense2.lib;thirdparty\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:\SDKs\OpenCV44\opencv\build\x64\vc15\lib;C:\Program Files (x86)\Intel RealSense SDK 2.0\lib\x64</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -154,7 +155,7 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>opencv_world440.lib;realsense2.lib; D:\SDKs\zstd-1.4\zstd\build\VS2010\bin\x64_Release\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>opencv_world440.lib;realsense2.lib;thirdparty\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:\SDKs\OpenCV44\opencv\build\x64\vc15\lib;C:\Program Files (x86)\Intel RealSense SDK 2.0\lib\x64</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>

@@ -329,7 +329,7 @@ int processCamera(int cam)
 	try
 	{
 		
-		starCapturing();
+		starCapturing(1024,768, "INTEL_REALSENSE");
 
 		using namespace cv;
 		const auto window_name = "Display Image";
@@ -451,7 +451,7 @@ int recordScenario(std::string outdir, int maxFrames)
 		int w = 1024;
 		int h = 768;
 
-		starCapturing();
+		starCapturing(1024, 768, "INTEL_REALSENSE");
 
 		while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
 		{

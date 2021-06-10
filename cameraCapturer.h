@@ -19,7 +19,7 @@ cv::Mat getLastRGBFrame()
 	return _lastRGBFrame;
 }
 
-void captureFromRealSense()
+void captureFromRealSense(int width, int height)
 {
 	// Declare depth colorizer for pretty visualization of depth data
 	rs2::colorizer color_map(2);
@@ -31,7 +31,7 @@ void captureFromRealSense()
 	rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
 
 	// Use a configuration object to request only depth from the pipeline
-	cfg.enable_stream(RS2_STREAM_DEPTH, 1024, 0, RS2_FORMAT_Z16, 30);
+	cfg.enable_stream(RS2_STREAM_DEPTH, width, height, RS2_FORMAT_Z16, 30);
 	// Start streaming with the above configuration
 	pipe.start(cfg);
 
@@ -66,9 +66,16 @@ void captureFromRealSense()
 
 
 
-void starCapturing()
+void starCapturing(int width, int height , std::string cameraModel)
 {
-	captureThread = std::thread(captureFromRealSense);
+	if (cameraModel == "INTEL_REALSENSE")
+	{
+		captureThread = std::thread(captureFromRealSense, width, height);
+	}
+	else
+	{
+
+	}
 }
 
 void stopCapturing()

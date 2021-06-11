@@ -273,6 +273,8 @@ public:
 
 		
 		values_count = values.size();
+		if (values.size() == 0) return;
+
 		if (mode == LOSSLESS_COMPRESSION)
 		{
 			coefs[0] = values[0];
@@ -313,7 +315,7 @@ public:
 	unsigned short* compBuffer = NULL;
 	unsigned short* inBuffer = NULL;
 
-	int zstd_compression_level = 1;
+	int zstd_compression_level = 9;
 	int freePixelsRemoval = 1;
 	splineCompression(int m)
 	{
@@ -337,9 +339,19 @@ public:
 			if (quantizationMode == LOSSLESS_COMPRESSION)
 			{
 				vectorized.push_back(sp.coefs[0]);
-				for (int i = 0; i < sp.values.size()-1; i= i+2) vectorized.push_back(as_ushort( sp.cvalues[i], sp.cvalues[i+1]));
+				if (sp.values_count == 1)
+				{
+					/////
+				}
+				else
+				{
+					for (int i = 0; i < sp.values.size() - 1; i = i + 2)
+					{
+						vectorized.push_back(as_ushort(sp.cvalues[i], sp.cvalues[i + 1]));
+					}
 
-				if (sp.values_count % 2 == 1) vectorized.push_back(as_ushort(sp.cvalues[sp.values_count-1], 0));
+					if (sp.values_count % 2 == 1) vectorized.push_back(as_ushort(sp.cvalues[sp.values_count - 1], 0));
+				}
 
 			}
 			else

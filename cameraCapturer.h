@@ -2,6 +2,9 @@
 
 #include <opencv2/opencv.hpp>   // Include OpenCV API
 #include <librealsense2/rs.hpp>
+
+#include <ST/CaptureSession.h>
+
 #include <thread>
 
 cv::Mat _lastDepthFrame, _lastRGBFrame;
@@ -35,7 +38,7 @@ void captureFromRealSense(int width, int height)
 	// Start streaming with the above configuration
 	pipe.start(cfg);
 
-	while (_finishCapture)
+	while (!_finishCapture)
 	{
 
 		rs2::frameset data = pipe.wait_for_frames(); // Wait for next set of frames from the camera
@@ -64,7 +67,94 @@ void captureFromRealSense(int width, int height)
 	}
 }
 
+////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+float* depthData = NULL;
 
+struct SessionDelegate : ST::CaptureSessionDelegate {
+	void captureSessionEventDidOccur(ST::CaptureSession *session, ST::CaptureSessionEventId event) override 
+	{
+		printf("Received capture session event %d (%s)\n", (int)event, ST::CaptureSessionSample::toString(event));
+		switch (event) 
+		{
+		case ST::CaptureSessionEventId::Booting: break;
+		case ST::CaptureSessionEventId::Connected:
+			printf("Starting streams...\n");
+			printf("Sensor Serial Number is %s \n ", session->sensorInfo().serialNumber);
+			session->startStreaming();
+			break;
+		case ST::CaptureSessionEventId::Disconnected:
+		case ST::CaptureSessionEventId::Error:
+			printf("Capture session error\n");
+			exit(1);
+			break;
+		default:
+			printf("Capture session event unhandled\n");
+		}
+	}
+
+	void captureSessionDidOutputSample(ST::CaptureSession *, const ST::CaptureSessionSample& sample) override 
+	{
+		printf("Received capture session sample of type %d (%s)\n", (int)sample.type, ST::CaptureSessionSample::toString(sample.type));
+		switch (sample.type) 
+		{
+		case ST::CaptureSessionSample::Type::DepthFrame:
+		{
+			int w = sample.depthFrame.width();
+			int h = sample.depthFrame.height();
+
+			printf("Depth frame: size %dx%d\n", sample.depthFrame.width(), sample.depthFrame.height());
+
+			// read depth matrix
+			cv::Mat depth(cv::Size(w, h), CV_32FC1, (void*)sample.depthFrame.depthInMillimeters(), cv::Mat::AUTO_STEP);
+
+			depth.convertTo(_lastDepthFrame, CV_16UC1);
+
+
+			break;
+		}
+		case ST::CaptureSessionSample::Type::VisibleFrame:
+			printf("Visible frame: size %dx%d\n", sample.visibleFrame.width(), sample.visibleFrame.height());
+			break;
+		default:
+			printf("Sample type unhandled\n");
+		}
+	}
+};
+
+
+void captureFromStructure(int width, int height)
+{
+
+	ST::CaptureSessionSettings settings;
+	settings.source = ST::CaptureSessionSourceId::StructureCore;
+	settings.structureCore.depthEnabled = true;
+	settings.structureCore.visibleEnabled = false;
+	settings.structureCore.infraredEnabled = false;
+	settings.structureCore.accelerometerEnabled = false;
+	settings.structureCore.gyroscopeEnabled = false;
+	settings.structureCore.depthResolution = ST::StructureCoreDepthResolution::VGA;
+
+	settings.structureCore.depthRangeMode = ST::StructureCoreDepthRangeMode::Medium;
+	settings.structureCore.initialInfraredExposure = 0.020f;
+	settings.structureCore.initialInfraredGain = 1;
+
+
+	SessionDelegate delegate;
+	ST::CaptureSession session;
+	session.setDelegate(&delegate);
+	if (!session.startMonitoring(settings)) {
+		printf("Failed to initialize capture session!\n");
+		return ;
+	}
+
+	/* Loop forever. The SessionDelegate receives samples on a background thread
+	   while streaming. */
+	while (!_finishCapture) {
+		std::this_thread::sleep_for(std::chrono::seconds(10));
+	}
+
+}
 
 void starCapturing(int width, int height , std::string cameraModel)
 {
@@ -73,8 +163,9 @@ void starCapturing(int width, int height , std::string cameraModel)
 		captureThread = std::thread(captureFromRealSense, width, height);
 	}
 	else
+	if (cameraModel == "OCCIPITAL")
 	{
-
+		captureThread = std::thread(captureFromStructure, width, height);
 	}
 }
 

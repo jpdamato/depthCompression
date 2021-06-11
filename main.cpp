@@ -137,9 +137,9 @@ void createScripts(std::string outDir, int frame)
 
 void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verbose)
 {
-	uint32_t width = 1024;
-	uint32_t height = 768;
-	size_t orig_size = 1024 * 768 * 2;
+	uint32_t width = depth.cols;
+	uint32_t height = depth.rows;
+	size_t orig_size = width * height * 2;
 
 	std::vector<float> valuesToExport;
 
@@ -324,12 +324,12 @@ void histDisplay(std::vector<double>& histogram, const char* name)
 
 ///////////////////////////////////////////////////////
 // Process Camera in real time
-int processCamera(int cam)
+int processCamera(std::string model)
 {
 	try
 	{
 		
-		starCapturing(1024,768, "INTEL_REALSENSE");
+		starCapturing(1024,768, model);
 
 		using namespace cv;
 		const auto window_name = "Display Image";
@@ -344,70 +344,100 @@ int processCamera(int cam)
 		splLinear = new splineCompression(LINEAR_COMPRESSION);
 		splBiQubic = new splineCompression(SPLINE_COMPRESSION);
 
-		int w = 1024;
-		int h = 768;
+		splineCompression* spl = splLossLess;
 
-		
+		std::string outDir = "temp/";
+
+		// create dir
+		if (!dirExists(outDir)) createDirectory(outDir);
+						
+		double encodeRate = 0;
+
 		while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
 		{
 			
 			cv::Mat depth = getLastDepthFrame();
 			cv::Mat image = getLastRGBFrame();
-		
 
-			if (frameIndex < 100)
+			if (depth.cols == 0)
 			{
-				compressionMetrics(depth, "d://temp//l515//", frameIndex, false);
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				continue;
 			}
-			cv::Mat depthRestored = splLossLess->restoreAsImage();
-			cv::Mat depthRestoredLinear = splLinear->restoreAsImage();
-			cv::Mat depthRestoredCubic = splBiQubic->restoreAsImage();
+		
+			startProcess("encoding");
+			spl->createFromImage(depth);
+
+			cv::Mat depthRestored = spl->restoreAsImage();
+			double time = endProcess("encoding");
+
+			if (frameIndex % 10 == 0)
+			{
+				// create Files`
+				std::string fn = outDir + std::to_string(frameIndex) + ".bin";
+				encodeRate = (double)(spl->encode(depth, fn))/(depth.cols * depth.rows * 2);
+
+				fn = outDir + std::to_string(frameIndex) + ".png";
+				cv::imwrite(fn, depth);
+			}
+			//cv::Mat depthRestoredLinear = splLinear->restoreAsImage();
+			//cv::Mat depthRestoredCubic = splBiQubic->restoreAsImage();
 
 
-			splLinear->display(scanrow);
+			//splLinear->display(scanrow);
 
-			splBiQubic->display(scanrow);
+			//splBiQubic->display(scanrow);
 
 			// Update the window with new data
-			cv::imshow(window_name, image);
+			if (image.cols > 0) cv::imshow(window_name, image);
 
+
+
+			cv::Mat idst;
+			cv::absdiff(depth, depthRestored, idst);
+			// map color ORIG
 			Mat im_color, im_gray;
 			depth.convertTo(im_gray, CV_8UC1, 1.0/160.0);
 			cv::applyColorMap(im_gray, im_color, COLORMAP_HSV);
 
-			Mat im_colorR2, im_grayR2;
-			depthRestoredCubic.convertTo(im_grayR2, CV_8UC1, 1.0 / 160.0);
-			cv::applyColorMap(im_grayR2, im_colorR2, COLORMAP_HSV);
-
-			cv::Mat idst;
-			cv::absdiff(depth, depthRestoredCubic, idst);
-
-
+			// map color RESTORED
 			Mat im_colorR, im_grayR;
-			idst.convertTo(im_grayR, CV_8UC1, 2.0);
+			depthRestored.convertTo(im_grayR, CV_8UC1, 1.0 / 160.0);
 			cv::applyColorMap(im_grayR, im_colorR, COLORMAP_HSV);
 
+			// map color DIFF
+			Mat im_colorR2, im_grayR2;
+			idst.convertTo(im_grayR2, CV_8UC1, 1.0 );
+			cv::applyColorMap(im_grayR2, im_colorR2, COLORMAP_HSV);
 
-			cv::imshow("Restore SPL", im_colorR2);
+
+			cv::putText(im_colorR, "Alg:" + spl->compressionModes[spl->quantizationMode], cv::Point(20, 20), 1, 1, cv::Scalar(255, 255, 255));
+			cv::putText(im_colorR, "Time " + std::to_string(time), cv::Point(20, 50), 1, 1, cv::Scalar(255, 255, 255));
+			cv::putText(im_colorR, "Rate " + std::to_string(encodeRate), cv::Point(20, 80), 1, 1, cv::Scalar(255, 255, 255));
+			
+
+			cv::imshow("Restore SPL", im_colorR);
 			cv::imshow("depth", im_color);
-			cv::imshow("diff", im_colorR);
+			cv::imshow("diff", im_colorR2);
 
 			
-			if (accum.cols == 0)	accum = image.clone();
-			else cv::addWeighted(accum, 0.60, image, 0.4, 0, accum);
+			if (accum.cols == 0)	accum = depth.clone();
+			else cv::addWeighted(accum, 0.60, depth, 0.4, 0, accum);
 
 
 			cv::putText(accum, "row " + std::to_string(scanrow), cv::Point(20, 20), 1, 1, cv::Scalar(255, 0, 0));
 						
 			cv::line(accum, cv::Point(0, scanrow), cv::Point(accum.cols - 1, scanrow), cv::Scalar(255, 0, 0), 3);
-			cv::imshow("smooth", accum);
+			if (accum.cols > 0 ) cv::imshow("smooth", accum);
 
 
 			int key = waitKey(1);
 
-			if (key == '1') scanrow = (scanrow + 1) % 768;
-			if (key == '2') scanrow = (scanrow + 10) % 768;
-			if (key == '3') scanrow = (scanrow + 100) % 768;
+			if (key == '1')  spl = splLossLess;
+			if (key == '2') spl = splLinear;
+			if (key == '3')  spl = splBiQubic;
+			if (key == 'w')  spl->freePixelsRemoval = 1;
+			if (key == 'e')  spl->freePixelsRemoval = 2;
 
 			if (key == 27)  break;
 
@@ -548,7 +578,7 @@ int test0()
 
 	// Apply threshold
 	int iter = 1;
-	int scanrow = 500;
+	int scanrow = 400;
 	size_t orig_size = 1024 * 768 * 2;
 	while (true)
 	{
@@ -766,7 +796,8 @@ int main(int argc, char * argv[])
 	else
 	if (input.cmdOptionExists("-camera"))
 	{
-		processCamera(-1);
+		std::string model = input.getCmdOption("-camera");
+		processCamera(model);
 	}
 	else
 		if (input.cmdOptionExists("-J2K"))

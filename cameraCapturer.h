@@ -6,6 +6,9 @@
 #include <ST/CaptureSession.h>
 
 #include <thread>
+#include <mutex>
+
+std::mutex mtxFrame;
 
 cv::Mat _lastDepthFrame, _lastRGBFrame;
 bool _finishCapture = false;
@@ -13,7 +16,12 @@ std::thread captureThread;
 
 cv::Mat getLastDepthFrame()
 {
-	return _lastDepthFrame;
+	cv::Mat clone ;
+
+	mtxFrame.lock();
+	clone = _lastDepthFrame.clone();
+	mtxFrame.unlock();
+	return clone;
 }
 
 
@@ -34,7 +42,7 @@ void captureFromRealSense(int width, int height)
 	rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
 
 	// Use a configuration object to request only depth from the pipeline
-	cfg.enable_stream(RS2_STREAM_DEPTH, width, height, RS2_FORMAT_Z16, 30);
+	cfg.enable_stream(RS2_STREAM_DEPTH, width, 0, RS2_FORMAT_Z16, 30);
 	// Start streaming with the above configuration
 	pipe.start(cfg);
 
@@ -61,8 +69,12 @@ void captureFromRealSense(int width, int height)
 		// Create OpenCV matrix of size (w,h) from the colorized depth data
 		cv::Mat image(cv::Size(w, h), CV_8UC3, (void*)depthC.get_data(), cv::Mat::AUTO_STEP);
 
+		mtxFrame.lock();
 		_lastDepthFrame = depth.clone();
 		_lastRGBFrame = image.clone();
+		mtxFrame.unlock();
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
 	}
 }
@@ -167,9 +179,13 @@ void starCapturing(int width, int height , std::string cameraModel)
 	{
 		captureThread = std::thread(captureFromStructure, width, height);
 	}
+
+	
 }
 
 void stopCapturing()
 {
 	_finishCapture = true;
+
+	captureThread.join();
 }

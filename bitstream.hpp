@@ -216,7 +216,7 @@ public:
 
 ///////////////////////////////////////////////////
 ////////////////////////////////////////////
-struct spline_data
+class spline_data
 {
 public:
 	unsigned short x0;
@@ -304,75 +304,146 @@ public:
 	}
 };
 
+
+///////////////////////////////////////////////////
+////////////////////////////////////////////
+
+class memManager
+{
+public:
+	std::vector<spline_data*> available;
+	std::vector<spline_data*> allocated;
+	std::mutex mtx;
+	spline_data* getNew()
+	{
+		if (available.size() == 0)
+		{
+			spline_data* sp = new spline_data();
+			sp->values_count = 0;
+			mtx.lock();
+			allocated.push_back(sp);
+			mtx.unlock();
+			return sp;
+		}
+		else
+		{
+			mtx.lock();
+			spline_data* sp = available[available.size()-1];
+			sp->values_count = 0;
+			sp->values.clear();
+			sp->cvalues.clear();
+			available.pop_back();
+			allocated.push_back(sp);
+			mtx.unlock();
+			return sp;
+
+		}
+	}
+
+	void releaseAll()
+	{
+		for (auto sp : allocated)
+		{
+			available.push_back(sp);
+			sp->values_count = 0;
+		}
+
+		allocated.clear();
+	}
+
+	void init(int count)
+	{
+		for (int i = 0; i < count; i++)
+		{
+			available.push_back(new spline_data());
+		}
+	}
+};
+
+
 class splineCompression : public depthRasterCompression
 {
 public:
 
-	std::vector<spline_data> splines;
+	memManager memMgr;
+	std::vector<spline_data*> splines;
 	int h, w;
 	unsigned short quantizationMode = LOSSLESS_COMPRESSION;
 	unsigned short* outBuffer = NULL;
 	unsigned short* compBuffer = NULL;
 	unsigned short* inBuffer = NULL;
+	unsigned short* vectorized = NULL;
+	int vectorized_count = 0;
 
+	// ZIP  Compression Level 1 = low .. 9 = high
 	int zstd_compression_level = 9;
-	int freePixelsRemoval = 1;
+	// Accept this amount of continuos pixels
+	int lonelyPixelsRemoval = 1;
+	// Retry if a pixel failed
+	int checkNeighRetry = 1;
+
+	// Constructor
 	splineCompression(int m)
 	{
 		quantizationMode = m;
 		compressionName = "splineCompression";
+		memMgr.init(40000);
 	}
 
-	std::vector<unsigned short> vectorized;
-
+	
+	///////////////////////////////
 	void vectorizeSplines()
 	{
-		vectorized.clear();
+		allocateMem();
+		vectorized_count = 0;
+
 		for (auto& sp : splines)
 		{
 			// SIGNAL
-			vectorized.push_back(sp.values_count);
-			vectorized.push_back(sp.x0);
-			vectorized.push_back(sp.y0);
-			
-	
+			vectorized[vectorized_count] = sp->values_count; vectorized_count++;
+			vectorized[vectorized_count] = sp->x0; vectorized_count++;
+			vectorized[vectorized_count] = sp->y0; vectorized_count++;
+		
 			if (quantizationMode == LOSSLESS_COMPRESSION)
 			{
-				vectorized.push_back(sp.coefs[0]);
-				if (sp.values_count == 1)
+				vectorized[vectorized_count]  = sp->coefs[0] ; vectorized_count++;
+				if (sp->values_count == 1)
 				{
 					/////
 				}
 				else
 				{
-					for (int i = 0; i < sp.values.size() - 1; i = i + 2)
+					for (int i = 0; i < sp->values_count - 1; i = i + 2)
 					{
-						vectorized.push_back(as_ushort(sp.cvalues[i], sp.cvalues[i + 1]));
+						vectorized[vectorized_count] = as_ushort(sp->cvalues[i], sp->cvalues[i + 1]) ; vectorized_count++;
 					}
 
-					if (sp.values_count % 2 == 1) vectorized.push_back(as_ushort(sp.cvalues[sp.values_count - 1], 0));
+					if (sp->values_count % 2 == 1)
+					{
+						vectorized[vectorized_count] = as_ushort(sp->cvalues[sp->values_count - 1], 0);  vectorized_count++;
+					}
 				}
 
 			}
 			else
 				if (quantizationMode == LINEAR_COMPRESSION)
 				{
-					vectorized.push_back(sp.coefs[0]);
-					vectorized.push_back(sp.coefs[1]);
+					vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
+					vectorized[vectorized_count] = sp->coefs[1]; vectorized_count++;
 				}
 				else
 				{
-					if (sp.values_count >= MIN_SAMPLES_EQ)
+					if (sp->values_count >= MIN_SAMPLES_EQ)
 					{
-						vectorized.push_back(sp.coefs[0]);
-						vectorized.push_back(float_to_half(sp.coefs[1]));
-						vectorized.push_back(float_to_half(sp.coefs[2]));
-						vectorized.push_back(float_to_half(sp.coefs[3]));
+						vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
+						vectorized[vectorized_count] = float_to_half(sp->coefs[1]); vectorized_count++;
+						vectorized[vectorized_count] = float_to_half(sp->coefs[2]); vectorized_count++;
+						vectorized[vectorized_count] = float_to_half(sp->coefs[3]); vectorized_count++;
 					}
 					else
 					{
-						vectorized.push_back(sp.coefs[0]);
-						vectorized.push_back(sp.coefs[1]);
+						vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
+						vectorized[vectorized_count] = sp->coefs[1]; vectorized_count++;
 					}
 				}
 
@@ -380,52 +451,73 @@ public:
 		}
 	}
 
+	void allocateMem()
+	{
+		if (!outBuffer) 	outBuffer = (unsigned short*)malloc(h * w * 4);
+
+		if (!inBuffer)
+		{
+			inBuffer = (unsigned short*)malloc(h * w * 4);
+			compBuffer = (unsigned short*)malloc(h * w * 4);
+		}
+
+		if (!vectorized) vectorized = new unsigned short[w * h * 2];
+
+
+	}
+
+
 	virtual void createFromImage(cv::Mat&m)
 	{
+		std::mutex mtx;
 		this->mt = m.clone();
 		std::cout << "----------------------------" << "\n";
 		std::cout << "Compression Mode " << compressionModes[ quantizationMode ] << "\n";
 		std::cout << "----------------------------" << "\n";
 
-		std::mutex mtx;
-		if (!outBuffer) 	outBuffer  = (unsigned short*)malloc(m.cols * m.rows * 2);
-
 		h = m.rows;
 		w = m.cols;
+
 		
-		std::vector< std::vector<spline_data>> all_splines;
-
-		for (int i = 0; i < 12; i++) all_splines.push_back(std::vector<spline_data>());
-
+		allocateMem();
 		startProcess("createFromImage" + compressionModes[quantizationMode]);
+		unsigned short* pixels = (unsigned short*)m.data;
+
+		splines.clear();
 		/// For all pixels
-#pragma omp parallel for
+//#pragma omp parallel for
 		for (int y = 0; y < m.rows; y++)
 		{
-			int th_ID = omp_get_thread_num();
+	//		int th_ID = omp_get_thread_num();
 
 			for (int x = 0; x < m.cols; x++)
 			{
-				unsigned short value = m.at<unsigned short>(y, x);
+				unsigned short value = pixels[y * w + x];
 				if (value < 300) continue;
 
-				spline_data p;
-				p.x0 = x;
-				p.y0 = y;
-				p.coefs[0] = value;
-
+				spline_data* p = memMgr.getNew();
+				p->x0 = x;
+				p->y0 = y;
+				p->coefs[0] = value;
+				int ret = checkNeighRetry;
 				while (true)
 				{
-
 					if (x >= m.cols) break;
-					unsigned short value2 = m.at<unsigned short>(y, x);
-					if (value < 300) break;
+					unsigned short value2 = pixels[y * w + x];
+					// may be it is noise
+					if (value < 300)
+					{
+						value2 = value;
+						ret--;
+					}
+					if (ret == 0) break;
 
 					if (abs(value - value2) < 128)
 					{
-						p.values.push_back(value2);
-						p.cvalues.push_back(value2 - value);
+						p->values.push_back(value2);
+						p->cvalues.push_back(value2 - value);
 						value = value2;
+						p->values_count = p->values.size();
 						x++;
 					}
 					else
@@ -437,35 +529,27 @@ public:
 
 				}
 
-				p.fit(quantizationMode);
+				p->fit(quantizationMode);
 
 			
 				// discard lonely values
 				if (quantizationMode == LOSSLESS_COMPRESSION)
 				{
-					all_splines[th_ID].push_back(p);
+					splines.push_back(p);
 				}
 				else
-					if (p.values.size() >= freePixelsRemoval)
+					if (p->values_count >= lonelyPixelsRemoval)
 					{
-						all_splines[th_ID].push_back(p);
+						splines.push_back(p);
 					}
 			}
 		}
 
 		endProcess("createFromImage" + compressionModes[quantizationMode]);
-		splines.clear();
-
-
-		for (int i = 0; i < all_splines.size(); i++)
-			for (int j = 0; j < all_splines[i].size(); j++)
-				splines.push_back(all_splines[i][j]);
-		
-
 
 	}
 
-	virtual size_t encode(cv::Mat _m, std::string fn)
+	virtual size_t encode(cv::Mat& _m, std::string fn)
 	{
 		
 		createFromImage(_m);
@@ -475,14 +559,23 @@ public:
 		vectorizeSplines();
 		/////////////////////////////////////////////////////
 	  // Compress using LZ4
-		char* srcBuffer = (char*)vectorized.data();
-		size_t srcSize = vectorized.size() * 2;
+		char* srcBuffer = (char*)vectorized;
+		size_t srcSize = vectorized_count * 2;
 
-		size_t const cBuffSize = ZSTD_compressBound(srcSize);
+		size_t outSize = srcSize;
 
-		size_t const outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
+		if (zstd_compression_level > 0)
+		{
 
-		double compressRate = (float)(outSize) / (w*h * 2);
+			size_t const cBuffSize = ZSTD_compressBound(srcSize);
+
+			outSize = ZSTD_compress(outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
+
+		}
+		else
+		{
+			outBuffer = (unsigned short*)srcBuffer;
+		}
 		
 		endProcess("encode" + compressionModes[quantizationMode]);
 
@@ -499,8 +592,7 @@ public:
 			out.write((const char*)&h, 2);
 			out.write((const char*)&quantizationMode, 2);
 			out.write((const char*)&zstd_compression_level, 2);			
-
-
+			
 			// bin mask
 			out.write((const char*)outBuffer, outSize);
 
@@ -520,21 +612,23 @@ public:
 		m.create(h, w, CV_16UC1);
 		m.setTo(0);
 
+		unsigned short* pixels = (unsigned short*)m.data;
+
 		int maxLength = 0;
 #pragma omp parallel for
 		for (int i = 0 ; i<splines.size(); i++)
 		{
-			spline_data sp = splines[i];
+			spline_data* sp = splines[i];
 			unsigned short value = 0;
 
-			for (int i = 0; i < sp.values_count; i++)
+			for (int i = 0; i < sp->values_count; i++)
 			{
-				unsigned short y = sp.y0;
-				unsigned short x = sp.x0 + i;
-			
-				value = sp.getValue(i,quantizationMode);
+				unsigned short y = sp->y0;
+				unsigned short x = sp->x0 + i;
 
-				m.at<unsigned short>(y, x) = value;
+				value = sp->getValue(i, quantizationMode);
+
+				pixels[ y * w + x] = value;
 			}
 		}
 				
@@ -548,8 +642,8 @@ public:
 		vectorizeSplines();
 		/////////////////////////////////////////////////////
 	  // Compress using LZ4
-		char* srcBuffer = (char*)vectorized.data();
-		size_t srcSize = vectorized.size() * 2;
+		char* srcBuffer = (char*)vectorized;
+		size_t srcSize = vectorized_count * 2;
 
 		size_t const cBuffSize = ZSTD_compressBound(srcSize);
 				
@@ -586,6 +680,8 @@ public:
 	virtual cv::Mat decode(std::string fn) 	
 	{
 	
+		allocateMem();
+
 		size_t outSize = get_file_size(fn)-8;
 
 		/// Prepare DATA
@@ -596,17 +692,16 @@ public:
 			return cv::Mat();
 		}
 		
-		size_t srcSize = 1024 * 768 * 2;
 		
-		if (!inBuffer)
-		{
-			inBuffer = (unsigned short*)malloc(srcSize);
-			compBuffer = (unsigned short*)malloc(srcSize);
-		}
 		input.read((char*)&w, 2);
 		input.read((char*)&h, 2);
 		input.read((char*)&quantizationMode, 2);
 		input.read((char*)&zstd_compression_level, 2);		
+
+
+
+		size_t srcSize = w * h * 2;
+
 
 		std::cout << "Decode parameters " << w << "x" << h << " mode " << compressionModes[quantizationMode] << " zip compression "<< zstd_compression_level<<"\n";
 		
@@ -619,33 +714,44 @@ public:
 		////////////////////////////
 		input.close();
 
-		startProcess("decode" + compressionModes[quantizationMode]);
-		// bin mask
-		size_t decSz = ZSTD_decompress(inBuffer, srcSize, compBuffer, outSize);
+		size_t decSz;
 
-		if (ZSTD_isError(decSz))
+		startProcess("decode" + compressionModes[quantizationMode]);
+		if (zstd_compression_level > 0)
 		{
-			std::cout << ZSTD_getErrorName(decSz) << "\n";
+			// bin mask
+			decSz = ZSTD_decompress(inBuffer, srcSize, compBuffer, outSize);
+
+			if (ZSTD_isError(decSz))
+			{
+				std::cout << ZSTD_getErrorName(decSz) << "\n";
+
+			}
+		}
+		else
+		{
+			inBuffer = compBuffer;
+			decSz = outSize;
 
 		}
 
-		std::vector<spline_data> readSP;
+		std::vector<spline_data*> readSP;
 		
 		int index = 0;
 		while (index < decSz/2)
 		{
 			// SIGNAL
-			spline_data sp;
-			sp.values_count = inBuffer[index]; index++;
-			sp.x0 = inBuffer[index]; index++;
-			sp.y0 = inBuffer[index]; index++;
+			spline_data* sp = memMgr.getNew();
+			sp->values_count = inBuffer[index]; index++;
+			sp->x0 = inBuffer[index]; index++;
+			sp->y0 = inBuffer[index]; index++;
 
 			if (quantizationMode == LOSSLESS_COMPRESSION)
 			{
-				for (int i = 0; i < sp.values_count; i++)
+				for (int i = 0; i < sp->values_count; i++)
 				{
 					// BUG
-					sp.values.push_back(inBuffer[index]);
+					sp->values.push_back(inBuffer[index]);
 					index++;
 				}
 			}
@@ -654,35 +760,35 @@ public:
 				{
 					float coef0 = inBuffer[index]; index++;
 					float coef1 = inBuffer[index]; index++;
-					sp.coefs[0] = coef0;
-					sp.coefs[1] = coef1;
-					sp.coefs[2] = 0.0;
-					sp.coefs[3] = 0.0;
+					sp->coefs[0] = coef0;
+					sp->coefs[1] = coef1;
+					sp->coefs[2] = 0.0;
+					sp->coefs[3] = 0.0;
 				}
 				else
 				if (quantizationMode == SPLINE_COMPRESSION)
 				{
-					if (sp.values_count >= MIN_SAMPLES_EQ)
+					if (sp->values_count >= MIN_SAMPLES_EQ)
 					{
 						float coef0 = inBuffer[index]; index++;
 						float coef1 = half_to_float(inBuffer[index]); index++;
 						float coef2 = half_to_float( inBuffer[index]); index++;
 						float coef3 = half_to_float(inBuffer[index]); index++;
 
-						sp.coefs[0] = coef0;
-						sp.coefs[1] = coef1;
-						sp.coefs[2] = coef2;
-						sp.coefs[3] = coef3;
+						sp->coefs[0] = coef0;
+						sp->coefs[1] = coef1;
+						sp->coefs[2] = coef2;
+						sp->coefs[3] = coef3;
 					}
 					else
 					{
 						float coef0 = inBuffer[index]; index++;
 						float coef1 = inBuffer[index]; index++;
 
-						sp.coefs[0] = coef0;
-						sp.coefs[1] = coef1;
-						sp.coefs[2] = 0;
-						sp.coefs[3] = 0;
+						sp->coefs[0] = coef0;
+						sp->coefs[1] = coef1;
+						sp->coefs[2] = 0;
+						sp->coefs[3] = 0;
 					}
 				}
 
@@ -718,17 +824,17 @@ public:
 		int hist_h = 200;
 		for (auto& sp : splines)
 		{
-			if (sp.y0 != row) continue;
+			if (sp->y0 != row) continue;
 			cv::Scalar color = cv::Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
 
-			if (sp.values.size() > 0)
+			if (sp->values_count > 0)
 			{
-				for (int i = 0; i < sp.values.size(); i = i + 1)
+				for (int i = 0; i < sp->values_count; i = i + 1)
 				{
 
-					int value = sp.getValue(i, 0);
+					int value = sp->getValue(i, 0);
 					double y = (double)(value) / (maxH)*histImg.rows;
-					int x = sp.x0 + i;
+					int x = sp->x0 + i;
 
 
 					/// Render Histogram
@@ -737,10 +843,10 @@ public:
 			}
 			else
 			{
-				for (int i = 0; i < sp.values_count; i = i + 1)
+				for (int i = 0; i < sp->values_count; i = i + 1)
 				{
-					int x = sp.x0 + i;
-					int y = sp.y0;
+					int x = sp->x0 + i;
+					int y = sp->y0;
 
 					double value = mt.at<unsigned short>(y,x);
 
@@ -754,12 +860,12 @@ public:
 			if (quantizationMode == SPLINE_COMPRESSION)
 			{
 				
-				for (int i = 0; i < sp.values_count; i = i + 1)
+				for (int i = 0; i < sp->values_count; i = i + 1)
 				{
-					int x = sp.x0 + i;
+					int x = sp->x0 + i;
 
-					double v0 = sp.getValue(i, quantizationMode);
-					double v1 = sp.getValue(i+1, quantizationMode);
+					double v0 = sp->getValue(i, quantizationMode);
+					double v1 = sp->getValue(i+1, quantizationMode);
 
 					double y0 = (double)(v0) / (maxH)*histImg.rows;
 					double y1 = (double)(v1) / (maxH)*histImg.rows;
@@ -773,10 +879,10 @@ public:
 			else
 			{
 				// Render estimation
-				int x0 = sp.x0;
-				int x1 = x0 + sp.values_count;
-				int y0 = (double)sp.getValue(0, LINEAR_COMPRESSION) / (maxH)*histImg.rows;
-				int y1 = (double)sp.getValue(sp.values_count - 1, LINEAR_COMPRESSION) / (maxH)*histImg.rows;
+				int x0 = sp->x0;
+				int x1 = x0 + sp->values_count;
+				int y0 = (double)sp->getValue(0, LINEAR_COMPRESSION) / (maxH)*histImg.rows;
+				int y1 = (double)sp->getValue(sp->values_count - 1, LINEAR_COMPRESSION) / (maxH)*histImg.rows;
 				line(histImg, cv::Point(x0, hist_h - y0), cv::Point(x1, hist_h - y1), cv::Scalar(0, 255, 0), 1, 8, 0);
 			}
 			

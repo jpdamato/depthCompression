@@ -1,0 +1,62 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="quality_metrics_OpenCV.cpp">
+      <Filter>tools</Filter>
+    </ClCompile>
+    <ClCompile Include="u_ProcessTime.cpp">
+      <Filter>tools</Filter>
+    </ClCompile>
+    <ClCompile Include="varintdecode.cpp">
+      <Filter>tools</Filter>
+    </ClCompile>
+    <ClCompile Include="vbyte.cpp">
+      <Filter>tools</Filter>
+    </ClCompile>
+    <ClCompile Include="bitstream.hpp">
+      <Filter>encoder</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="quality_metrics_OpenCV.h">
+      <Filter>tools</Filter>
+    </ClInclude>
+    <ClInclude Include="u_ProcessTime.h">
+      <Filter>tools</Filter>
+    </ClInclude>
+    <ClInclude Include="varintdecode.h">
+      <Filter>tools</Filter>
+    </ClInclude>
+    <ClInclude Include="vbyte.h">
+      <Filter>tools</Filter>
+    </ClInclude>
+    <ClInclude Include="timer.h">
+      <Filter>tools</Filter>
+    </ClInclude>
+    <ClInclude Include="cameraCapturer.h">
+      <Filter>encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="intSeqCompression.hpp">
+      <Filter>encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="memMgr.h">
+      <Filter>mem</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+    <None Include="readme.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="encoder">
+      <UniqueIdentifier>{856552b8-1bfb-4855-b56d-0e28cee3ef13}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="tools">
+      <UniqueIdentifier>{c9366f17-84e5-4e9f-ac5a-91504b8db804}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="mem">
+      <UniqueIdentifier>{6c062677-e6a5-4cfb-a928-ac662534ca9e}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

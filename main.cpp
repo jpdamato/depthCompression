@@ -147,7 +147,10 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	if (!dirExists(outDir + "Linear//")) createDirectory(outDir + "Linear//");
 	if (!dirExists(outDir + "Cubic//")) createDirectory(outDir + "Cubic//");
 	if (!dirExists(outDir + "PNG//")) createDirectory(outDir + "PNG//");
-		
+	
+	splBiQubic->zstd_compression_level = 0;
+	splLinear->zstd_compression_level = 0;
+	splLossLess->zstd_compression_level = 9;
 
 	// ZSTD
 	auto start = high_resolution_clock::now();
@@ -250,6 +253,10 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	valuesToExport.push_back(decodePNG);
 
 	exportCSV(outDir + "data.csv", valuesToExport, frame);
+
+	splBiQubic->memMgr.releaseAll();
+	splLinear->memMgr.releaseAll();
+	splLossLess->memMgr.releaseAll();
 }
 
 
@@ -337,9 +344,7 @@ int processCamera(std::string model)
 		int frameIndex = 0;
 
 		cv::Mat accum;
-
-		int scanrow = 500;
-
+		
 		splLossLess = new splineCompression(LOSSLESS_COMPRESSION);
 		splLinear = new splineCompression(LINEAR_COMPRESSION);
 		splBiQubic = new splineCompression(SPLINE_COMPRESSION);
@@ -352,6 +357,10 @@ int processCamera(std::string model)
 		if (!dirExists(outDir)) createDirectory(outDir);
 						
 		double encodeRate = 0;
+
+		int scanrow = 200;
+
+		cv::Mat prevDepth;
 
 		while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
 		{
@@ -380,13 +389,8 @@ int processCamera(std::string model)
 				fn = outDir + std::to_string(frameIndex) + ".png";
 				cv::imwrite(fn, depth);
 			}
-			//cv::Mat depthRestoredLinear = splLinear->restoreAsImage();
-			//cv::Mat depthRestoredCubic = splBiQubic->restoreAsImage();
-
-
-			//splLinear->display(scanrow);
-
-			//splBiQubic->display(scanrow);
+			
+			spl->display(scanrow);
 
 			// Update the window with new data
 			if (image.cols > 0) cv::imshow(window_name, image);
@@ -410,11 +414,20 @@ int processCamera(std::string model)
 			idst.convertTo(im_grayR2, CV_8UC1, 1.0 );
 			cv::applyColorMap(im_grayR2, im_colorR2, COLORMAP_HSV);
 
+			double pp = qm::psnr(depth, depthRestored, 1);
+			double pNoise = 0;
+
+			if (prevDepth.cols > 0)
+			{
+				pNoise = qm::psnr(depth, prevDepth, 1);
+			}
 
 			cv::putText(im_colorR, "Alg:" + spl->compressionModes[spl->quantizationMode], cv::Point(20, 20), 1, 1, cv::Scalar(255, 255, 255));
 			cv::putText(im_colorR, "Time " + std::to_string(time), cv::Point(20, 50), 1, 1, cv::Scalar(255, 255, 255));
 			cv::putText(im_colorR, "Rate " + std::to_string(encodeRate), cv::Point(20, 80), 1, 1, cv::Scalar(255, 255, 255));
-			
+			cv::putText(im_colorR, "PSNR " + std::to_string(pp), cv::Point(20, 110), 1, 1, cv::Scalar(255, 255, 255));
+			cv::putText(im_colorR, "Noise " + std::to_string(pNoise), cv::Point(20, 130), 1, 1, cv::Scalar(255, 255, 255));
+
 
 			cv::imshow("Restore SPL", im_colorR);
 			cv::imshow("depth", im_color);
@@ -436,11 +449,13 @@ int processCamera(std::string model)
 			if (key == '1')  spl = splLossLess;
 			if (key == '2') spl = splLinear;
 			if (key == '3')  spl = splBiQubic;
-			if (key == 'w')  spl->freePixelsRemoval = 1;
-			if (key == 'e')  spl->freePixelsRemoval = 2;
+			if (key == 'w')  spl->lonelyPixelsRemoval = 1;
+			if (key == 'e')  spl->lonelyPixelsRemoval = 2;
+			if (key == 'r')  spl->lonelyPixelsRemoval = 3;
 
 			if (key == 27)  break;
 
+			prevDepth = depth.clone();
 			frameIndex++;
 		}
 
@@ -469,23 +484,36 @@ int recordScenario(std::string outdir, int maxFrames)
 	try
 	{
 		
-
 		using namespace cv;
 		const auto window_name = "Display Image";
 		namedWindow(window_name, WINDOW_AUTOSIZE);
 		int frameIndex = 0;
-
-		cv::Mat accum;
-
-		int scanrow = 500;
+		
 		int w = 1024;
 		int h = 768;
 
-		starCapturing(1024, 768, "INTEL_REALSENSE");
+
+		int waittime = 5000;
+
+		starCapturing(w, h, "INTEL_REALSENSE");
 
 		while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
 		{
 			cv::Mat depth = getLastDepthFrame();
+
+			if (depth.cols == 0)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				continue;
+			}
+
+			if (waittime > 0)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				waittime -= 100;
+				continue;
+			}
+
 			std::string date = return_current_time_and_date();
 			
 			// create dir
@@ -504,19 +532,14 @@ int recordScenario(std::string outdir, int maxFrames)
 			
 			cv::imshow("depth", im_color);
 			
-			cv::putText(accum, "row " + std::to_string(scanrow), cv::Point(20, 20), 1, 1, cv::Scalar(255, 0, 0));
-
-
-			cv::line(accum, cv::Point(0, scanrow), cv::Point(accum.cols - 1, scanrow), cv::Scalar(255, 0, 0), 3);
-			cv::imshow("smooth", accum);
-
 
 			int key = cv::waitKey(1);
 
 
 			if (key == 27)  break;
 
-			frameIndex++;
+			frameIndex++; 
+			
 			if (frameIndex == maxFrames) break;
 		}
 
@@ -809,7 +832,7 @@ int main(int argc, char * argv[])
 	if (input.cmdOptionExists("-record"))
 	{
 		std::string outDir = input.getCmdOption("-out");
-		recordScenario(outDir,200);
+		recordScenario(outDir,500);
 	}
 	else
 	if (input.cmdOptionExists("-metrics"))

@@ -3,17 +3,21 @@
 
 
 #include <experimental/filesystem>
+
+#include "thirdparty/huffman.h"
 #include "bitstream.hpp"
 
 #include "quality_metrics_OpenCV.h"
 #include "cameraCapturer.h"
+#include "jp2CPUEncoder.h"
+
 
 #include <chrono>
 using namespace std::chrono;
 
 #define CODE_VERSION "7Jun2021"
 
-splineCompression* splLinear, *splBiQubic, *splLossLess;
+splineCompression* splLinear, *splBiQubic, *splLossLess, *spl5;
 
 /**
 Class to encapsulate a filter alongside its options
@@ -146,11 +150,14 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	if (!dirExists(outDir + "ZSTD//")) createDirectory(outDir + "ZSTD//");
 	if (!dirExists(outDir + "Linear//")) createDirectory(outDir + "Linear//");
 	if (!dirExists(outDir + "Cubic//")) createDirectory(outDir + "Cubic//");
+	if (!dirExists(outDir + "Five//")) createDirectory(outDir + "Five//");
 	if (!dirExists(outDir + "PNG//")) createDirectory(outDir + "PNG//");
+	if (!dirExists(outDir + "J2K//")) createDirectory(outDir + "J2K//");
 	
 	splBiQubic->zstd_compression_level = 0;
 	splLinear->zstd_compression_level = 0;
-	splLossLess->zstd_compression_level = 9;
+	spl5->zstd_compression_level = 0;
+	splLossLess->zstd_compression_level = 1;
 
 	// ZSTD
 	auto start = high_resolution_clock::now();
@@ -175,14 +182,29 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	double elapsedQ = duration.count();
 	//bitS->readFromFile("d://temp//l515//ZSTD.bin");
 
+	// FIVE
+	start = high_resolution_clock::now();
+	double compQ5 = (double)spl5->encode(depth, outDir + "Five//" + std::to_string(frame) + ".bin") / (orig_size);
+
+	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
+	double elapsedQ5 = duration.count();
+
 
 	//PNG
 	start = high_resolution_clock::now();
 	cv::imwrite(outDir + "PNG//" + std::to_string(frame) + ".png", depth);
 	double compPNG = (double)get_file_size(outDir +"PNG//" + std::to_string(frame) + ".png") / (orig_size);
+	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
+
+	double elapsedPNG = duration.count();
+
+	//J2K LossLess
+	start = high_resolution_clock::now();
+	writeJP2File(outDir + "J2K//" + std::to_string(frame) + ".jp2", depth);
+	double compJ2KL = (double)get_file_size(outDir + "J2K//" + std::to_string(frame) + ".jp2" )/ (orig_size);
 	
 	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
-	double elapsedPNG = duration.count();
+	double elapsedJ2K = duration.count();
 	
 	
 	start = high_resolution_clock::now();
@@ -200,11 +222,21 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
 	double decodeCubic = duration.count();
 
+	start = high_resolution_clock::now();
+	cv::Mat depthRestored5 = spl5->decode(outDir + "Five//" + std::to_string(frame) + ".bin");
+	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
+	double decode5 = duration.count();
+
 
 	start = high_resolution_clock::now();
 	cv::Mat depth2 = cv::imread(outDir + "PNG//" + std::to_string(frame) + ".png", -1);
 	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
 	double decodePNG = duration.count();
+
+	start = high_resolution_clock::now();
+	cv::Mat depthJP2 = cv::imread(outDir + "J2K//" + std::to_string(frame) + ".jp2", -1);
+	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
+	double decodeJP2 = duration.count();
 
 
 	std::string fn = outDir + "RAW//" + std::to_string(frame) + ".raw";
@@ -230,8 +262,8 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	double error = qm::psnr(depth, depthRestored, 1);
 	double errorL = qm::psnr(depth, depthRestoredLinear, 1);
 	double errorB = qm::psnr(depth, depthRestoredCubic, 1);
+	double error5 = qm::psnr(depth, depthRestored5, 1);
 
-	
 	valuesToExport.push_back(compZ);
 	valuesToExport.push_back(error);
 	valuesToExport.push_back(elapsedZ);
@@ -252,11 +284,22 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	valuesToExport.push_back(elapsedPNG);
 	valuesToExport.push_back(decodePNG);
 
+	valuesToExport.push_back(compQ5);
+	valuesToExport.push_back(error5);
+	valuesToExport.push_back(elapsedQ5);
+	valuesToExport.push_back(decode5);
+
+	valuesToExport.push_back(compJ2KL);
+	valuesToExport.push_back(0);
+	valuesToExport.push_back(elapsedJ2K);
+	valuesToExport.push_back(decodeJP2);
+
 	exportCSV(outDir + "data.csv", valuesToExport, frame);
 
 	splBiQubic->memMgr.releaseAll();
 	splLinear->memMgr.releaseAll();
 	splLossLess->memMgr.releaseAll();
+	spl5->memMgr.releaseAll();
 }
 
 
@@ -348,6 +391,7 @@ int processCamera(std::string model)
 		splLossLess = new splineCompression(LOSSLESS_COMPRESSION);
 		splLinear = new splineCompression(LINEAR_COMPRESSION);
 		splBiQubic = new splineCompression(SPLINE_COMPRESSION);
+		spl5 = new splineCompression(SPLINE5_COMPRESSION);
 
 		splineCompression* spl = splLossLess;
 
@@ -390,7 +434,7 @@ int processCamera(std::string model)
 				cv::imwrite(fn, depth);
 			}
 			
-			spl->display(scanrow);
+			spl->display(scanrow, spl->encodedMode,1);
 
 			// Update the window with new data
 			if (image.cols > 0) cv::imshow(window_name, image);
@@ -422,7 +466,7 @@ int processCamera(std::string model)
 				pNoise = qm::psnr(depth, prevDepth, 1);
 			}
 
-			cv::putText(im_colorR, "Alg:" + spl->compressionModes[spl->quantizationMode], cv::Point(20, 20), 1, 1, cv::Scalar(255, 255, 255));
+			cv::putText(im_colorR, "Alg:" + spl->compressionModes[spl->encodedMode], cv::Point(20, 20), 1, 1, cv::Scalar(255, 255, 255));
 			cv::putText(im_colorR, "Time " + std::to_string(time), cv::Point(20, 50), 1, 1, cv::Scalar(255, 255, 255));
 			cv::putText(im_colorR, "Rate " + std::to_string(encodeRate), cv::Point(20, 80), 1, 1, cv::Scalar(255, 255, 255));
 			cv::putText(im_colorR, "PSNR " + std::to_string(pp), cv::Point(20, 110), 1, 1, cv::Scalar(255, 255, 255));
@@ -444,11 +488,12 @@ int processCamera(std::string model)
 			if (accum.cols > 0 ) cv::imshow("smooth", accum);
 
 
-			int key = waitKey(1);
+			int key = cv::waitKey(1);
 
 			if (key == '1')  spl = splLossLess;
 			if (key == '2') spl = splLinear;
 			if (key == '3')  spl = splBiQubic;
+			if (key == '4')  spl = spl5;
 			if (key == 'w')  spl->lonelyPixelsRemoval = 1;
 			if (key == 'e')  spl->lonelyPixelsRemoval = 2;
 			if (key == 'r')  spl->lonelyPixelsRemoval = 3;
@@ -479,7 +524,7 @@ int processCamera(std::string model)
 
 ////////////////////////////////////
 // Record Scenario
-int recordScenario(std::string outdir, int maxFrames)
+int recordScenario(std::string outdir,std::string cameraModel, int maxFrames)
 {
 	try
 	{
@@ -495,7 +540,7 @@ int recordScenario(std::string outdir, int maxFrames)
 
 		int waittime = 5000;
 
-		starCapturing(w, h, "INTEL_REALSENSE");
+		starCapturing(w, h, cameraModel);
 
 		while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
 		{
@@ -566,12 +611,15 @@ int processDir(std::string outDir)
 	splLossLess = new splineCompression(LOSSLESS_COMPRESSION);
 	splLinear = new splineCompression(LINEAR_COMPRESSION);
 	splBiQubic = new splineCompression(SPLINE_COMPRESSION);
+	spl5 = new splineCompression(SPLINE5_COMPRESSION);
 
 
 	for (int i = 0; i < 150; i++)
 	{
 		cv::Mat depth = cv::imread(outDir + std::to_string(i) + ".pgm", -1);
 		compressionMetrics(depth, outDir, i, false);
+
+		if (i % 10 == 0) showProcessTime();
 	}
 
 	showProcessTime();
@@ -612,9 +660,9 @@ int test0()
 		cv::Mat depthRestoredCubic = splBiQubic->restoreAsImage();
 
 
-		splLinear->display(scanrow);
+		splLinear->display(scanrow, LINEAR_COMPRESSION,1);
 
-		splBiQubic->display(scanrow);
+		splBiQubic->display(scanrow, SPLINE_COMPRESSION, 1);
 
 		double pp = qm::psnr(depth, depthRestored, 1);
 		double ppL = qm::psnr(depth, depthRestoredLinear, 1);
@@ -645,6 +693,159 @@ int test0()
 	return 1;
 }
 
+cv::Mat calculateResidualAbs(cv::Mat& m, cv::Mat& depthRestored, int quantization, size_t outSizeC)
+{
+
+	char* diff = new char[m.cols * m.rows];
+	uchar* output = new uchar[m.cols * m.rows * 2];
+	cv::Mat depthRestoredPlus;
+	//////////////////////////////////////////////////
+	/// Compute Residual
+	unsigned short* pix0 = (unsigned short*)m.data;
+	unsigned short* pix1 = (unsigned short*)depthRestored.data;
+	double minV = 1000;
+	double maxV = -1000;
+
+	int quantizationLevel = pow(2, quantization);
+
+	for (int y = 0; y < m.rows; y++)
+		for (int x = 0; x < m.cols; x++)
+		{
+			diff[y * m.cols + x] = (pix0[y * m.cols + x] - pix1[y * m.cols + x]) / (quantizationLevel);
+
+		}
+
+	size_t cBuffSize = ZSTD_compressBound(m.cols * m.rows * 2);
+
+	size_t outSize = ZSTD_compress(output, cBuffSize, diff, m.cols * m.rows , 9);
+
+	/////////////////////////////////////////////////////////////
+	depthRestoredPlus = m.clone();
+	depthRestoredPlus.setTo(0);
+
+	unsigned short* rpix1 = (unsigned short*)depthRestored.data;
+	unsigned short* rpix2 = (unsigned short*)depthRestoredPlus.data;
+
+	for (int y = 0; y < m.rows; y++)
+		for (int x = 0; x < m.cols; x++)
+		{
+			rpix2[y * m.cols + x] = diff[y * m.cols + x] * quantizationLevel + rpix1[y * m.cols + x];
+
+		}
+
+	double errorPlus = qm::psnr(m, depthRestoredPlus, 1);
+	std::cout << "Compression error + Residual ABS .  Error2 " << errorPlus << " Size." << outSizeC << " residual size " << +outSize << "\n";
+
+	return depthRestoredPlus;
+}
+
+
+int test1()
+{
+	int mode = LINEAR_COMPRESSION;
+	splLinear = new splineCompression(mode);
+	ZSTD_CCtx* ctx = ZSTD_createCCtx();
+	ZSTD_CDict* dictionary = NULL;
+	unsigned char* outputC = new unsigned char[1000*1000*2];
+
+	splLinear->saveResidual = true;
+	splLinear->zstd_compression_level = 0;
+	splLinear->lonelyPixelsRemoval = 1;
+	splLinear->scale = 2;
+	splLinear->checkNeighRetry = 1;
+
+	splLinear->offset = 0;
+	splLinear->improveMethod = false;
+
+	int scanrow = 250;
+	int i = 0;
+
+	int iterCount = 30;
+
+	int quantization = 3;
+
+	while (i < 100)
+	{
+
+		//cv::Mat m = cv::imread("D:\\temp\\l515\\freiburg360\\0 (" + std::to_string(i)+").png", -1);
+
+		cv::Mat m = cv::imread("D:\\temp\\l515\\scn4\\" + std::to_string(i) + ".pgm", -1);
+
+
+		if (m.cols == 0) {
+			i++; 
+			continue;
+		}
+		auto start = high_resolution_clock::now();
+		/*
+		splLinear->createFromImage(m);
+		splLinear->vectorizeSplines();
+		/////////////////////////////////////////////////////
+	  // Compress using LZ4
+		char* inputP = (char*)splLinear->vectorized;
+		size_t srcSize = splLinear->vectorized_count * 2;
+		///////decompression
+		size_t const compSize = ZSTD_compressBound(srcSize);
+
+		size_t outSizeC = ZSTD_compressCCtx(ctx, outputC, srcSize, inputP, srcSize,1);
+
+		auto duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
+		std::cout << "Compression " << duration.count() << " orig size " << srcSize << " compress size " << outSizeC << "\n";
+		*/
+		size_t outSizeC = splLinear->encode(m, "D:\\temp\\l515\\freiburg360\\test.bin");
+	
+		splLinear->display(scanrow, mode, iterCount);
+
+		
+		cv::Mat depthRestored = splLinear->restoreAsImage();
+		
+
+		splLinear->quantization = pow(2, quantization);
+		double error = qm::psnr(m, depthRestored, 1);
+
+		std::cout << "-------------------------------------" << "\n";
+		if (splLinear->saveResidual) std::cout << " ***** SAVING RESIDUAL ***** " << "\n";
+		std::cout << "Quantization  " << splLinear->quantization << "\n";
+		std::cout << " Error original " << error << "\n";
+		std::cout << " Compression size " << outSizeC << "\n";
+
+		//cv::Mat depthRestored = splLinear->decode("D:\\temp\\l515\\freiburg360\\test.bin");
+				
+		//cv::Mat depthRestoredPlus = calculateResidualAbs(m, depthRestored, quantization, outSizeC);
+
+
+		std::cout << "-------------------------------------" << "\n";
+		splLinear->computeMetrics();
+
+		
+		cv::line(m, cv::Point(0, scanrow), cv::Point(depthRestored.cols - 1, scanrow), cv::Scalar(255, 255, 255), 3);
+
+		
+		
+		cv::imshow("orig", m);
+		cv::imshow("restored", depthRestored);
+		//cv::imshow("restored Plus", depthRestoredPlus);
+		
+		showProcessTime();
+
+		int key = cv::waitKey(-1);
+
+		if (key == '1') scanrow = (scanrow + 1) % m.rows;
+		if (key == '2') scanrow = (scanrow + 10) % m.rows;
+		if (key == '3') scanrow = (scanrow + 100) % m.rows;
+		
+		if (key == 'n') i++;
+		if (key == 'c') splLinear->zstd_compression_level = (splLinear->zstd_compression_level + 1) % 10;
+		if (key == '8') iterCount  = (iterCount+1) % 20;
+		if (key == '9') quantization = (quantization + 1) % 10 ;
+		if (key == 't') splLinear->saveResidual = !splLinear->saveResidual;
+
+
+		splLinear->memMgr.releaseAll();
+		
+	}
+	return 1;
+}
 
 
 /////////////////////////////////////////////////
@@ -653,6 +854,7 @@ void compareToJ2K(std::string outDir)
 {
 	splBiQubic = new splineCompression(SPLINE_COMPRESSION);
 	splLinear = new splineCompression(LINEAR_COMPRESSION);
+	spl5 = new splineCompression(SPLINE5_COMPRESSION);
 
 	std::vector<double> r0;
 	std::vector<double> r1;
@@ -664,11 +866,13 @@ void compareToJ2K(std::string outDir)
 		std::string fJ2K95 = outDir  + std::to_string(i) + ".q95.pgm";
 		std::string fCubic = outDir + "Cubic\\" + std::to_string(i) + ".bin";
 		std::string fLinear = outDir + "Linear\\" + std::to_string(i) + ".bin";
+		std::string fFive = outDir + "Five\\" + std::to_string(i) + ".bin";
 
 		cv::Mat mRaw = cv::imread(fRaw,-1);
 		cv::Mat mJ2K85 = cv::imread(fJ2K85, -1);
 		cv::Mat mJ2K95 = cv::imread(fJ2K95, -1);
 		cv::Mat mCubic = splBiQubic->decode(fCubic);
+		cv::Mat mFive = spl5->decode(fFive);
 
 		cv::Mat mLinear = splLinear->decode(fLinear);
 
@@ -689,13 +893,16 @@ void compareToJ2K(std::string outDir)
 
 		double pp = qm::psnr(mRaw, mCubic,1);
 		double ppL = qm::psnr(mRaw, mLinear, 1);
+		double pp5 = qm::psnr(mRaw, mFive, 1);
+
 		double pp85 = qm::psnr(mRaw, mJ2K85, 1);
 		double pp95 = qm::psnr(mRaw, mJ2K95, 1);
 
 		cv::putText(im_colorR2, std::to_string(pp), cv::Point(20, 20), 1, 1, cv::Scalar(255,255,255));
 		cv::putText(im_colorR2, std::to_string(ppL), cv::Point(20, 50), 1, 1, cv::Scalar(255, 255, 255));
-		cv::putText(im_colorR2, std::to_string(pp85), cv::Point(20, 80), 1, 1, cv::Scalar(255, 255, 255));
-		cv::putText(im_colorR2, std::to_string(pp95), cv::Point(20, 110), 1, 1, cv::Scalar(255, 255, 255));
+		cv::putText(im_colorR2, std::to_string(pp5), cv::Point(20, 80), 1, 1, cv::Scalar(255, 255, 255));
+		cv::putText(im_colorR2, "J2k:"+std::to_string(pp85), cv::Point(20, 110), 1, 1, cv::Scalar(255, 255, 255));
+		cv::putText(im_colorR2, "J2k:" + std::to_string(pp95), cv::Point(20, 140), 1, 1, cv::Scalar(255, 255, 255));
 
 		cv::imshow("RAW", im_color);
 	//	cv::imshow("J2K", mJ2K);
@@ -747,6 +954,11 @@ void encode(std::string inputF, std::string ouputF, std::string format)
 			if (format == "CUBIC")
 			{
 				spl = new splineCompression(SPLINE_COMPRESSION);
+			}
+			else
+			if (format == "FIVE")
+			{
+				spl = new splineCompression(SPLINE5_COMPRESSION);
 			}
 			else
 			{
@@ -801,43 +1013,42 @@ int main(int argc, char * argv[])
 		return 0;
 	}
 
+	std::string outDir = input.getCmdOption("-out");
+	std::string in = input.getCmdOption("-in");
+	std::string encoder = input.getCmdOption("-encoder");
+	std::string decoder = input.getCmdOption("-decoder");
+	std::string model = input.getCmdOption("-camera");
+
+
 	if (input.cmdOptionExists("-encode"))
 	{
-		std::string in = input.getCmdOption("-in");
-		std::string out = input.getCmdOption("-out");
-		std::string encoder = input.getCmdOption("-encoder");
-		encode(in, out, encoder);
+		encode(in, outDir, encoder);
 	}
 	else
 	if (input.cmdOptionExists("-decode"))
 		{
-		std::string in = input.getCmdOption("-in");
-		std::string out = input.getCmdOption("-out");
-		std::string encoder = input.getCmdOption("-decoder");
-		decode(in, out, encoder);
+			decode(in, outDir, decoder);
 		}
 	else
-	if (input.cmdOptionExists("-camera"))
+	if (input.cmdOptionExists("-live"))
 	{
-		std::string model = input.getCmdOption("-camera");
 		processCamera(model);
 	}
 	else
 		if (input.cmdOptionExists("-J2K"))
 		{
-			std::string outDir = input.getCmdOption("-out");
+		
 			compareToJ2K(outDir);
 		}
 		else
 	if (input.cmdOptionExists("-record"))
 	{
-		std::string outDir = input.getCmdOption("-out");
-		recordScenario(outDir,500);
+		
+		recordScenario(outDir,model, 500);
 	}
 	else
 	if (input.cmdOptionExists("-metrics"))
 	{
-		std::string outDir = input.getCmdOption("-out");
 		processDir(outDir);
 	}
 	else
@@ -845,6 +1056,11 @@ int main(int argc, char * argv[])
 	{
 		test0();
 	}
+	else
+		if (input.cmdOptionExists("-test1"))
+		{
+			test1();
+		}
 	else std::cout << " Unknown command" << "\n";
 }
 

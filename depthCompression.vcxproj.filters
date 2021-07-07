@@ -17,6 +17,7 @@
     <ClCompile Include="bitstream.hpp">
       <Filter>encoder</Filter>
     </ClCompile>
+    <ClCompile Include="thirdparty\huffman.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="quality_metrics_OpenCV.h">
@@ -43,6 +44,31 @@
     <ClInclude Include="memMgr.h">
       <Filter>mem</Filter>
     </ClInclude>
+    <ClInclude Include="jp2CPUEncoder.h">
+      <Filter>encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\huffman.h" />
+    <ClInclude Include="thirdparty\simple_fft\check_fft.hpp">
+      <Filter>fft</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\simple_fft\copy_array.hpp">
+      <Filter>fft</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\simple_fft\error_handling.hpp">
+      <Filter>fft</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\simple_fft\fft.h">
+      <Filter>fft</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\simple_fft\fft.hpp">
+      <Filter>fft</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\simple_fft\fft_impl.hpp">
+      <Filter>fft</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\simple_fft\fft_settings.h">
+      <Filter>fft</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -57,6 +83,9 @@
     </Filter>
     <Filter Include="mem">
       <UniqueIdentifier>{6c062677-e6a5-4cfb-a928-ac662534ca9e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="fft">
+      <UniqueIdentifier>{b983748a-9128-4cad-bfeb-3f1649d784e3}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

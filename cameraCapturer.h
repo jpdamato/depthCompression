@@ -170,11 +170,16 @@ void captureFromStructure(int width, int height)
 
 void starCapturing(int width, int height , std::string cameraModel)
 {
-	if (cameraModel == "INTEL_REALSENSE")
+	if (cameraModel == "L515")
 	{
 		captureThread = std::thread(captureFromRealSense, width, height);
 	}
 	else
+		if (cameraModel == "D415")
+		{
+			captureThread = std::thread(captureFromRealSense, 1280, 720);
+		}
+		else
 	if (cameraModel == "OCCIPITAL")
 	{
 		captureThread = std::thread(captureFromStructure, width, height);

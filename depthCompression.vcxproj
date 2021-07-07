@@ -22,6 +22,7 @@
     <ClCompile Include="bitstream.hpp" />
     <ClCompile Include="quality_metrics_OpenCV.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="thirdparty\huffman.cpp" />
     <ClCompile Include="u_ProcessTime.cpp" />
     <ClCompile Include="varintdecode.cpp" />
     <ClCompile Include="vbyte.cpp" />
@@ -33,8 +34,17 @@
   <ItemGroup>
     <ClInclude Include="cameraCapturer.h" />
     <ClInclude Include="intSeqCompression.hpp" />
+    <ClInclude Include="jp2CPUEncoder.h" />
     <ClInclude Include="memMgr.h" />
     <ClInclude Include="quality_metrics_OpenCV.h" />
+    <ClInclude Include="thirdparty\huffman.h" />
+    <ClInclude Include="thirdparty\simple_fft\check_fft.hpp" />
+    <ClInclude Include="thirdparty\simple_fft\copy_array.hpp" />
+    <ClInclude Include="thirdparty\simple_fft\error_handling.hpp" />
+    <ClInclude Include="thirdparty\simple_fft\fft.h" />
+    <ClInclude Include="thirdparty\simple_fft\fft.hpp" />
+    <ClInclude Include="thirdparty\simple_fft\fft_impl.hpp" />
+    <ClInclude Include="thirdparty\simple_fft\fft_settings.h" />
     <ClInclude Include="timer.h" />
     <ClInclude Include="u_ProcessTime.h" />
     <ClInclude Include="varintdecode.h" />
@@ -119,7 +129,7 @@
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>./thirdparty/structure/lib/Structure.lib;./thirdparty/opencv345/lib/opencv_world345d.lib;realsense2.lib;thirdparty\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>./thirdparty/jp2/lib/openjp2.lib;./thirdparty/structure/lib/Structure.lib;./thirdparty/opencv345/lib/opencv_world345d.lib;realsense2.lib;thirdparty\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:\SDKs\OpenCV44\opencv\build\x64\vc15\lib;C:\Program Files (x86)\Intel RealSense SDK 2.0\lib\x64</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -152,8 +162,8 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>./thirdparty/structure/lib/Structure.lib;./thirdparty/opencv345/lib/opencv_world345.lib;realsense2.lib;thirdparty\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\Program Files (x86)\Intel RealSense SDK 2.0\lib\x64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>./thirdparty/structure/lib/Structure.lib;./thirdparty/opencv345/lib/opencv_world345.lib;realsense2.lib;thirdparty\libzstd_static.lib;./thirdparty/jp2/lib/openjp2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\Program Files (x86)\Intel RealSense SDK 2.0\lib\x64;\thirdparty\jp2\lib</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

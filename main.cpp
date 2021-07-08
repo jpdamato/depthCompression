@@ -739,7 +739,7 @@ cv::Mat calculateResidualAbs(cv::Mat& m, cv::Mat& depthRestored, int quantizatio
 }
 
 
-int test1()
+int test1(std::string inputDir)
 {
 	int mode = LINEAR_COMPRESSION;
 	splLinear = new splineCompression(mode);
@@ -769,9 +769,7 @@ int test1()
 	while (i < 100)
 	{
 
-		//cv::Mat m = cv::imread("D:\\temp\\l515\\freiburg360\\0 (" + std::to_string(i)+").png", -1);
-
-		cv::Mat m = cv::imread("D:\\temp\\l515\\scn4\\" + std::to_string(i) + ".pgm", -1);
+		cv::Mat m = cv::imread(inputDir + std::to_string(i) + ".pgm", -1);
 
 
 		if (m.cols == 0) {
@@ -779,22 +777,8 @@ int test1()
 			continue;
 		}
 		auto start = high_resolution_clock::now();
-		/*
-		splLinear->createFromImage(m);
-		splLinear->vectorizeSplines();
-		/////////////////////////////////////////////////////
-	  // Compress using LZ4
-		char* inputP = (char*)splLinear->vectorized;
-		size_t srcSize = splLinear->vectorized_count * 2;
-		///////decompression
-		size_t const compSize = ZSTD_compressBound(srcSize);
-
-		size_t outSizeC = ZSTD_compressCCtx(ctx, outputC, srcSize, inputP, srcSize,1);
-
-		auto duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
-		std::cout << "Compression " << duration.count() << " orig size " << srcSize << " compress size " << outSizeC << "\n";
-		*/
-		size_t outSizeC = splLinear->encode(m, "D:\\temp\\l515\\freiburg360\\test.bin");
+	
+		size_t outSizeC = splLinear->encode(m, "test.bin");
 	
 		splLinear->display(scanrow, mode, iterCount);
 
@@ -811,19 +795,12 @@ int test1()
 		std::cout << " Error original " << error << "\n";
 		std::cout << " Compression size " << outSizeC << "\n";
 
-		//cv::Mat depthRestored = splLinear->decode("D:\\temp\\l515\\freiburg360\\test.bin");
-				
-		//cv::Mat depthRestoredPlus = calculateResidualAbs(m, depthRestored, quantization, outSizeC);
-
-
 		std::cout << "-------------------------------------" << "\n";
 		splLinear->computeMetrics();
 
 		
 		cv::line(m, cv::Point(0, scanrow), cv::Point(depthRestored.cols - 1, scanrow), cv::Scalar(255, 255, 255), 3);
 
-		
-		
 		cv::imshow("orig", m);
 		cv::imshow("restored", depthRestored);
 		//cv::imshow("restored Plus", depthRestoredPlus);
@@ -1061,7 +1038,8 @@ int main(int argc, char * argv[])
 	else
 		if (input.cmdOptionExists("-test1"))
 		{
-			test1();
+			std::cout << "Test 1 .. dir " << in << "\n";
+			test1(in);
 		}
 	else std::cout << " Unknown command" << "\n";
 }

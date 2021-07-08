@@ -75,10 +75,10 @@ void startProcess(char* procName)
 		newT->counter++;
 	}
 	//Build the invocation tree
-	if (std::find(prevTS->childProcess.begin(), prevTS->childProcess.end(), newT) != prevTS->childProcess.end())
+//	if (std::find(prevTS->childProcess.begin(), prevTS->childProcess.end(), newT) != prevTS->childProcess.end())
 	{
 	}
-	else
+//	else
 	{
 		newT->parent = prevTS;
 		prevTS->childProcess.push_back(newT);

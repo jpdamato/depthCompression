@@ -13,6 +13,8 @@ https://www.researchgate.net/profile/Juan_DAmato/
 #include <time.h>
 #include <stdio.h>
 #include <vector>
+#include <string>
+
 #ifndef TIMESIGNAL
 #define TIMESIGNAL
 

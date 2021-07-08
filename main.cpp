@@ -3,6 +3,7 @@
 
 
 #include <experimental/filesystem>
+#include <omp.h>
 
 #include "bitstream.hpp"
 
@@ -1053,7 +1054,7 @@ int main(int argc, char * argv[])
 
 			if (procCount != "")
 			{
-				std::cout << " Set threads count " << in << "\n";
+				std::cout << " Set threads count " << procCount << "\n";
 				omp_set_num_threads(std::stoi(procCount));
 
 			}

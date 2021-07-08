@@ -8,8 +8,10 @@
 
 #include "quality_metrics_OpenCV.h"
 #include "cameraCapturer.h"
-#include "jp2CPUEncoder.h"
 
+#ifdef ZSTD
+#include "jp2CPUEncoder.h"
+#endif
 
 #include <chrono>
 using namespace std::chrono;
@@ -199,11 +201,13 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 
 	double elapsedPNG = duration.count();
 
+	double compJ2KL = 0;
+#ifdef ZSTD
 	//J2K LossLess
 	start = high_resolution_clock::now();
 	writeJP2File(outDir + "J2K//" + std::to_string(frame) + ".jp2", depth);
-	double compJ2KL = (double)get_file_size(outDir + "J2K//" + std::to_string(frame) + ".jp2" )/ (orig_size);
-	
+	compJ2KL = (double)get_file_size(outDir + "J2K//" + std::to_string(frame) + ".jp2" )/ (orig_size);
+#endif	
 	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
 	double elapsedJ2K = duration.count();
 	

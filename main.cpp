@@ -785,6 +785,11 @@ int test1(std::string inputDir)
 		
 		cv::Mat depthRestored = splLinear->restoreAsImage();
 		
+		startProcess("savePNG");
+
+		cv::imwrite("out.png", m);
+
+		endProcess("savePNG");
 
 		splLinear->quantization = pow(2, quantization);
 		double error = qm::psnr(m, depthRestored, 1);
@@ -1042,7 +1047,12 @@ int main(int argc, char * argv[])
 		if (input.cmdOptionExists("-test1"))
 		{
 
-			if (procCount != "") omp_set_num_threads(std::stoi(procCount));
+			if (procCount != "")
+			{
+				std::cout << " Set threads count " << in << "\n";
+				omp_set_num_threads(std::stoi(procCount));
+
+			}
 
 			std::cout << "Test 1 .. dir " << in << "\n";
 			std::cout << " Num threads " << omp_get_num_procs() << "\n";

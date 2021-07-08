@@ -741,7 +741,7 @@ cv::Mat calculateResidualAbs(cv::Mat& m, cv::Mat& depthRestored, int quantizatio
 
 int test1(std::string inputDir)
 {
-	int mode = LINEAR_COMPRESSION;
+	int mode = SPLINE_COMPRESSION;
 	splLinear = new splineCompression(mode);
 
 #ifdef ZSTD
@@ -1039,6 +1039,7 @@ int main(int argc, char * argv[])
 		if (input.cmdOptionExists("-test1"))
 		{
 			std::cout << "Test 1 .. dir " << in << "\n";
+			std::cout << " Num threads " << omp_get_num_procs() << "\n";
 			test1(in);
 		}
 	else std::cout << " Unknown command" << "\n";

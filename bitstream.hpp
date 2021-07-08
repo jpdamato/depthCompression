@@ -7,7 +7,9 @@
 
 #include <opencv2/opencv.hpp>   // Include OpenCV API
 
+#ifdef ZSTD
 #include "zstd.h"
+#endif
 #include "u_ProcessTime.h"
 
 
@@ -468,15 +470,18 @@ public:
 	int checkNeighRetry = 1;
 
 	bool saveResidual = false;
+#ifdef ZSTD
 	ZSTD_CCtx* ctx = NULL;
+#endif
 	// Constructor
 	splineCompression(int m)
 	{
 		encodedMode = m;
 		compressionName = "splineCompression";
 		memMgr.init(100000);
-
+#ifdef ZSTD
 		ctx = ZSTD_createCCtx();
+#endif
 	}
 
 	
@@ -983,11 +988,11 @@ public:
 
 		if (zstd_compression_level > 0)
 		{
-
+#ifdef ZSTD
 			size_t const cBuffSize = ZSTD_compressBound(srcSize);
 
 			outSize = ZSTD_compressCCtx(ctx, outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
-
+#endif
 		}
 		else
 		{
@@ -1072,11 +1077,14 @@ public:
 		char* srcBuffer = (char*)vectorized;
 		size_t srcSize = vectorized_count * 2;
 
-		size_t const cBuffSize = ZSTD_compressBound(srcSize);
-				
 		auto start = high_resolution_clock::now();
 
+#ifdef ZSTD
+		size_t const cBuffSize = ZSTD_compressBound(srcSize);
 		size_t const outSize = ZSTD_compressCCtx(ctx,outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
+#else
+		size_t const outSize = srcSize;
+#endif
 		auto duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
 		//std::cout << " TIME ZSTD " << duration.count() << "\n";
 
@@ -1141,6 +1149,7 @@ public:
 		if (zstd_compression_level > 0)
 		{
 			// bin mask
+#ifdef ZSTD
 			decSz = ZSTD_decompress(inBuffer, srcSize, compBuffer, outSize);
 
 			if (ZSTD_isError(decSz))
@@ -1148,6 +1157,7 @@ public:
 				std::cout << ZSTD_getErrorName(decSz) << "\n";
 
 			}
+#endif
 		}
 		else
 		{

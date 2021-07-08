@@ -764,7 +764,7 @@ int test1(std::string inputDir)
 
 	int iterCount = 30;
 
-	int quantization = 3;
+	int quantization = 7;
 
 	while (i < 100)
 	{
@@ -778,7 +778,11 @@ int test1(std::string inputDir)
 		}
 		auto start = high_resolution_clock::now();
 	
+		startProcess("encode");
+
 		size_t outSizeC = splLinear->encode(m, "test.bin");
+
+		endProcess("encode");
 	
 		splLinear->display(scanrow, mode, iterCount);
 
@@ -1055,7 +1059,7 @@ int main(int argc, char * argv[])
 			}
 
 			std::cout << "Test 1 .. dir " << in << "\n";
-			std::cout << " Num threads " << omp_get_num_procs() << "\n";
+			std::cout << " Num threads " << omp_get_num_threads() << "\n";
 
 			test1(in);
 		}

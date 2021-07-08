@@ -25,8 +25,12 @@ class filter_options
 {
 public:
 	std::string filter_name;                                   //Friendly name of the filter
+#ifdef REAL_SENSE
+
 	rs2::filter& filter;                                       //The filter in use
 	                       //A boolean controlled by the user that determines whether to apply the filter or not
+#endif
+
 };
 
 class InputParser {
@@ -505,11 +509,7 @@ int processCamera(std::string model)
 
 		return EXIT_SUCCESS;
 	}
-	catch (const rs2::error & e)
-	{
-		std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
-		return EXIT_FAILURE;
-	}
+	
 	catch (const std::exception& e)
 	{
 		std::cerr << e.what() << std::endl;
@@ -587,11 +587,6 @@ int recordScenario(std::string outdir,std::string cameraModel, int maxFrames)
 		stopCapturing();
 
 		return EXIT_SUCCESS;
-	}
-	catch (const rs2::error & e)
-	{
-		std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
-		return EXIT_FAILURE;
 	}
 	catch (const std::exception& e)
 	{
@@ -711,10 +706,14 @@ cv::Mat calculateResidualAbs(cv::Mat& m, cv::Mat& depthRestored, int quantizatio
 
 		}
 
+#ifdef ZSTD
 	size_t cBuffSize = ZSTD_compressBound(m.cols * m.rows * 2);
 
 	size_t outSize = ZSTD_compress(output, cBuffSize, diff, m.cols * m.rows , 9);
-
+#else
+	size_t cBuffSize = m.cols * m.rows * 2;
+	size_t outSize = cBuffSize;
+#endif
 	/////////////////////////////////////////////////////////////
 	depthRestoredPlus = m.clone();
 	depthRestoredPlus.setTo(0);
@@ -740,8 +739,11 @@ int test1()
 {
 	int mode = LINEAR_COMPRESSION;
 	splLinear = new splineCompression(mode);
+
+#ifdef ZSTD
 	ZSTD_CCtx* ctx = ZSTD_createCCtx();
 	ZSTD_CDict* dictionary = NULL;
+#endif
 	unsigned char* outputC = new unsigned char[1000*1000*2];
 
 	splLinear->saveResidual = true;

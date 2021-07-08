@@ -1,9 +1,11 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>   // Include OpenCV API
-#include <librealsense2/rs.hpp>
 
+#ifdef REAL_SENSE
+#include <librealsense2/rs.hpp>
 #include <ST/CaptureSession.h>
+#endif
 
 #include <thread>
 #include <mutex>
@@ -32,6 +34,7 @@ cv::Mat getLastRGBFrame()
 
 void captureFromRealSense(int width, int height)
 {
+#ifdef REAL_SENSE
 	// Declare depth colorizer for pretty visualization of depth data
 	rs2::colorizer color_map(2);
 
@@ -77,12 +80,13 @@ void captureFromRealSense(int width, int height)
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
 	}
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////
 float* depthData = NULL;
-
+#ifdef REAL_SENSE
 struct SessionDelegate : ST::CaptureSessionDelegate {
 	void captureSessionEventDidOccur(ST::CaptureSession *session, ST::CaptureSessionEventId event) override 
 	{
@@ -133,11 +137,11 @@ struct SessionDelegate : ST::CaptureSessionDelegate {
 		}
 	}
 };
-
+#endif
 
 void captureFromStructure(int width, int height)
 {
-
+#ifdef REAL_SENSE
 	ST::CaptureSessionSettings settings;
 	settings.source = ST::CaptureSessionSourceId::StructureCore;
 	settings.structureCore.depthEnabled = true;
@@ -165,7 +169,7 @@ void captureFromStructure(int width, int height)
 	while (!_finishCapture) {
 		std::this_thread::sleep_for(std::chrono::seconds(10));
 	}
-
+#endif
 }
 
 void starCapturing(int width, int height , std::string cameraModel)

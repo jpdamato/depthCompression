@@ -807,7 +807,7 @@ int test1(std::string inputDir)
 		
 		showProcessTime();
 
-		int key = cv::waitKey(-1);
+		int key = cv::waitKey(50);
 
 		if (key == '1') scanrow = (scanrow + 1) % m.rows;
 		if (key == '2') scanrow = (scanrow + 10) % m.rows;
@@ -998,6 +998,9 @@ int main(int argc, char * argv[])
 	std::string decoder = input.getCmdOption("-decoder");
 	std::string model = input.getCmdOption("-camera");
 
+	std::string procCount = input.getCmdOption("-procCount");
+
+
 
 	if (input.cmdOptionExists("-encode"))
 	{
@@ -1038,8 +1041,12 @@ int main(int argc, char * argv[])
 	else
 		if (input.cmdOptionExists("-test1"))
 		{
+
+			if (procCount != "") omp_set_num_threads(std::stoi(procCount));
+
 			std::cout << "Test 1 .. dir " << in << "\n";
 			std::cout << " Num threads " << omp_get_num_procs() << "\n";
+
 			test1(in);
 		}
 	else std::cout << " Unknown command" << "\n";

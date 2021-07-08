@@ -4,7 +4,6 @@
 
 #include <experimental/filesystem>
 
-#include "thirdparty/huffman.h"
 #include "bitstream.hpp"
 
 #include "quality_metrics_OpenCV.h"
@@ -188,8 +187,6 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 
 	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
 	double elapsedQ5 = duration.count();
-
-
 	//PNG
 	start = high_resolution_clock::now();
 	cv::imwrite(outDir + "PNG//" + std::to_string(frame) + ".png", depth);
@@ -205,7 +202,6 @@ void compressionMetrics(cv::Mat& depth, std::string outDir, int frame, bool verb
 	
 	duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
 	double elapsedJ2K = duration.count();
-	
 	
 	start = high_resolution_clock::now();
 	cv::Mat depthRestored = splLossLess->restoreAsImage();

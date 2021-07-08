@@ -51,7 +51,7 @@ void captureFromRealSense(int width, int height)
 
 		rs2::frameset data = pipe.wait_for_frames(); // Wait for next set of frames from the camera
 		rs2::frame depthRaw = data.get_depth_frame();
-
+		
 		////////////////////////
 		rs2::frame filtered = temp_filter.process(depthRaw); // Does not copy the frame, only adds a reference
 		depthRaw = filtered;

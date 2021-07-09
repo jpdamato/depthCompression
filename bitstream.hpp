@@ -332,6 +332,9 @@ public:
 			std::vector<float> ys;
 
 			int subsample = 1;
+			if (values.size() > 100) subsample = 4;
+			else if (values.size() > 20) subsample = 2;
+
 			for (int i = 0; i < values.size(); i = i + subsample)
 			{
 				int value = values[i];
@@ -576,17 +579,15 @@ public:
 		if (!vectorized) vectorized = new unsigned short[w * h * 2];
 
 		// clear buffers
+#pragma omp parallel for
 		for (int i = 0; i < h * w * 2; i++) 
 		{ 
 			inBuffer[i] = 0;  
 			compBuffer[i] = 0;  
 			outBuffer[i] = 0;		
-		}
-
-		for (int i = 0; i < h * w * 2; i++)
-		{
 			vectorized[i] = 0;
 		}
+
 
 	}
 

@@ -3,10 +3,10 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LocalDebuggerWorkingDirectory>D:\Proyects\DepthCompression\depthCompression\bin</LocalDebuggerWorkingDirectory>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
-    <LocalDebuggerCommandArguments>-test1</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>-encodeGPU  -out E:/temp/l515/scn8/ -preprocess -in "E:/temp/l515/scn6/"</LocalDebuggerCommandArguments>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LocalDebuggerCommandArguments>-test1</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>-encodeGPU  -out E:/temp/l515/scn8/ -preprocess -in "E:/temp/l515/scn6/"</LocalDebuggerCommandArguments>
     <LocalDebuggerWorkingDirectory>D:\Proyects\DepthCompression\depthCompression\bin</LocalDebuggerWorkingDirectory>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>

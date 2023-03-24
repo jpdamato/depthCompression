@@ -3,12 +3,14 @@
 #include<fstream>
 #include <mutex>
 #include <chrono>
+#include <algorithm>
 #include <omp.h>
-
+#include <experimental/filesystem>
 #include <opencv2/opencv.hpp>   // Include OpenCV API
 
 #ifdef ZSTD
 #include "zstd.h"
+#include "common.h"
 #endif
 #include "u_ProcessTime.h"
 
@@ -22,7 +24,7 @@ using namespace std::chrono;
 #define SPLINE_COMPRESSION 3
 #define LINEAR_COMPRESSION 4
 #define SPLINE5_COMPRESSION 5
-#define MIN_EXPECTED_ERROR 300
+#define MIN_EXPECTED_ERROR 128
 
 #define MIN_SAMPLES_EQ 24
 
@@ -80,6 +82,29 @@ static ushort float_to_half(const float x) { // IEEE-754 16-bit floating-point f
 	const uint e = (b & 0x7F800000) >> 23; // exponent
 	const uint m = b & 0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
 	return (b & 0x80000000) >> 16 | (e > 112)*((((e - 112) << 10) & 0x7C00) | m >> 13) | ((e < 113)&(e > 101))*((((0x007FF000 + m) >> (125 - e)) + 1) >> 1) | (e > 143) * 0x7FFF; // sign : normalized : denormalized : saturate
+}
+
+
+static ZSTD_CDict* createCDict_orDie(const char* dictFileName, int cLevel)
+{
+	size_t dictSize;
+	printf("loading dictionary %s \n", dictFileName);
+	void* const dictBuffer = mallocAndLoadFile_orDie(dictFileName, &dictSize);
+	ZSTD_CDict* const cdict = ZSTD_createCDict(dictBuffer, dictSize, cLevel);
+
+	free(dictBuffer);
+	return cdict;
+}
+
+static ZSTD_DDict* createDDict_orDie(const char* dictFileName)
+{
+	size_t dictSize;
+	printf("loading dictionary %s \n", dictFileName);
+	void* const dictBuffer = mallocAndLoadFile_orDie(dictFileName, &dictSize);
+	ZSTD_DDict* const ddict = ZSTD_createDDict(dictBuffer, dictSize);
+	CHECK(ddict != NULL, "ZSTD_createDDict() failed!");
+	free(dictBuffer);
+	return ddict;
 }
 ///////////////////////////////////////////////////
 ////////////////////////////////////////////
@@ -227,6 +252,8 @@ public:
 
 ///////////////////////////////////////////////////
 ////////////////////////////////////////////
+
+
 class spline_data
 {
 public:
@@ -359,19 +386,30 @@ public:
 		{
 			
 			residual.clear();
-
-		
-			////////////////////////////////////////////
-			for (int i = 0; i < values_count; i++)
+			cvalues.clear();
+			if (mode == LOSSLESS_COMPRESSION)
 			{
-				//cvalues.push_back( (values[i] - values[i-1]) / QUANTIZATION);
+				////////////////////////////////////////////
+				for (int i = 0; i < values_count; i++)
+				{
+					// LossLess
+					if (i > 0) cvalues.push_back((values[i] - values[i - 1]) / QUANTIZATION);
+					else cvalues.push_back(0);
+					
+				}
+			}
+			else
+			{
+				////////////////////////////////////////////
+				for (int i = 0; i < values_count; i++)
+				{
+					short diff = (values[i] - getValue(i, mode));
 
-				short diff = (values[i] - getValue(i, mode));
+					residual.push_back(diff / QUANTIZATION);
 
-				residual.push_back(diff / QUANTIZATION);
-
-				_error += abs(diff / QUANTIZATION);
-				//residual.push_back(evaluate(i) - values[i]);
+					_error += abs(diff / QUANTIZATION);
+					//residual.push_back(evaluate(i) - values[i]);
+				}
 			}
 		}
 
@@ -385,6 +423,8 @@ public:
 
 	
 };
+
+bool splineSort(spline_data* sp0, spline_data* sp1);
 
 
 ///////////////////////////////////////////////////
@@ -458,7 +498,7 @@ public:
 	unsigned short* inBuffer = NULL;
 	unsigned short* vectorized = NULL;
 	int vectorized_count = 0;
-	int quantization = 16;
+	int quantization = 128;
 	bool improveMethod = false;
 
 	int scale = 1;
@@ -466,24 +506,27 @@ public:
 	int offset = 0;
 
 	// ZIP  Compression Level 1 = low .. 9 = high
-	int zstd_compression_level = 9;
+	int zstd_compression_level = 1;
 	// Accept this amount of continuos pixels
-	int lonelyPixelsRemoval = 1;
+	int lonelyPixelsRemoval = 2;
+	std::vector<int> gradients;
 	// Retry if a pixel failed
 	int checkNeighRetry = 1;
-
+	std::string dictionary = "depthDictionary.dct";
 	bool saveResidual = false;
 #ifdef ZSTD
-	ZSTD_CCtx* ctx = NULL;
+	ZSTD_CCtx* cctx = NULL;
+	ZSTD_DCtx* dctx = NULL;
 #endif
 	// Constructor
 	splineCompression(int m)
 	{
 		encodedMode = m;
 		compressionName = "splineCompression";
-		memMgr.init(100000);
+		memMgr.init(400000);
 #ifdef ZSTD
-		ctx = ZSTD_createCCtx();
+		cctx = ZSTD_createCCtx();
+		dctx = ZSTD_createDCtx();
 #endif
 	}
 
@@ -511,12 +554,12 @@ public:
 				}
 				else
 				{
-					for (int i = 0; i < sp->values_count - 1; i = i + 2)
+					for (int i = 0; i < sp->cvalues.size() - 1; i = i + 2)
 					{
 						vectorized[vectorized_count] = as_ushort(sp->cvalues[i]/scale, sp->cvalues[i + 1] / scale) ; vectorized_count++;
 					}
 
-					if (sp->values_count % 2 == 1)
+					if (sp->cvalues.size() % 2 == 1)
 					{
 						vectorized[vectorized_count] = as_ushort(sp->cvalues[sp->values_count - 1] / scale, 0);  vectorized_count++;
 					}
@@ -556,11 +599,14 @@ public:
 				}
 
 
-			if (saveResidual && sp->error() > 0)
+			if (encodedMode != LOSSLESS_COMPRESSION)
 			{
-				for (int i = 0; i < sp->values_count - 1; i = i + 2)
+				if (saveResidual && sp->error() > 0)
 				{
-					vectorized[vectorized_count] = as_ushort(sp->residual[i], sp->residual[i + 1]); vectorized_count++;
+					for (int i = 0; i < sp->values_count - 1; i = i + 2)
+					{
+						vectorized[vectorized_count] = as_ushort(sp->residual[i], sp->residual[i + 1]); vectorized_count++;
+					}
 				}
 			}
 		}
@@ -703,6 +749,8 @@ public:
 		return false;
 	}
 
+	std::mutex mtx;
+
 	// Make proposal then split
 	std::vector<spline_data*> encodeRowIter(int y, int cols, unsigned short* pixels, int mode, int itercount)
 	{
@@ -725,7 +773,7 @@ public:
 			// check consecutive pixels
 			while (true)
 			{
-				if (x >= cols) break;
+				if (x >= cols-1) break;
 				// take a sample
 				unsigned short value2 = pixels[y * w + x];
 				
@@ -747,6 +795,13 @@ public:
 					p->valid = 1;
 					ps.push_back(p);
 				}
+			else
+			{
+				mtx.lock();
+				gradients.push_back(p->values[0]);
+				gradients.push_back(p->y0*cols+p->x0);
+				mtx.unlock();
+			}
 
 		}
 		/// split planes
@@ -798,6 +853,77 @@ public:
 		}
 		return ps;
 	
+	}
+
+	ZSTD_CDict* cdictPtr = NULL;
+	ZSTD_DDict* ddictPtr = NULL;
+
+	size_t dictionaryCompression(char* srcBuffer, size_t srcSize)
+	{
+		size_t outSize = 0;
+
+		startProcess("zip" + compressionModes[encodedMode]);
+
+		if (zstd_compression_level > 0)
+		{
+#ifdef ZSTD
+			size_t const cBuffSize = ZSTD_compressBound(srcSize);
+
+			
+
+			// check if exists Dictionary
+			if (std::experimental::filesystem::exists(dictionary))
+			{
+				if (!cdictPtr) cdictPtr = createCDict_orDie(dictionary.c_str(), zstd_compression_level);
+
+				outSize = ZSTD_compress_usingCDict(cctx, outBuffer, cBuffSize, srcBuffer, srcSize, cdictPtr);
+			}
+			else
+			{
+				
+
+				outSize = ZSTD_compressCCtx(cctx, outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
+			}
+#endif
+		}
+		else
+		{
+			outBuffer = (unsigned short*)srcBuffer;
+			outSize = srcSize;
+		}
+		endProcess("zip" + compressionModes[encodedMode]);
+
+		return outSize;
+
+	}
+
+	size_t dictionaryDecompression(char* srcBuffer, size_t srcSize)
+	{
+		size_t outSize = 0 , decSz;
+
+		unsigned long long const rSize = ZSTD_getFrameContentSize(srcBuffer, srcSize);
+
+		// bin mask
+#ifdef ZSTD
+		if (std::experimental::filesystem::exists("depthDictionary.dct"))
+		{
+			if (!ddictPtr) ddictPtr = createDDict_orDie("depthDictionary.dct");
+
+			decSz = ZSTD_decompress_usingDDict(dctx, outBuffer, rSize, srcBuffer, srcSize, ddictPtr);
+		}
+		else
+		{
+			decSz = ZSTD_decompress(inBuffer, srcSize, compBuffer, outSize);
+		}
+
+		if (ZSTD_isError(decSz))
+		{
+			std::cout << ZSTD_getErrorName(decSz) << "\n";
+
+		}
+#endif
+
+		return decSz;
 	}
 
 	// Generate a first approach
@@ -856,6 +982,10 @@ public:
 				if (p->values_count < lonelyPixelsRemoval)
 				{
 					p->valid = 0;
+					mtx.lock();
+					gradients.push_back(p->values[0]);
+					gradients.push_back(p->y0*cols + p->x0);
+					mtx.unlock();
 				}
 				else
 				{
@@ -892,9 +1022,9 @@ public:
 	{
 		std::mutex mtx;
 		this->mt = m.clone();
-		std::cout << "----------------------------" << "\n";
-		std::cout << "Compression Mode " << compressionModes[ encodedMode ] << "\n";
-		std::cout << "----------------------------" << "\n";
+		//std::cout << "----------------------------" << "\n";
+		//std::cout << "Compression Mode " << compressionModes[ encodedMode ] << "\n";
+		//std::cout << "----------------------------" << "\n";
 
 		h = m.rows;
 		w = m.cols;
@@ -911,16 +1041,23 @@ public:
 #pragma omp parallel for
 		for (int y = 0; y < m.rows; y++)
 		{
-			// Old method. 
-			if (improveMethod)
+			try
 			{
-				encodeRowIter(y, m.cols, pixels, encodedMode, 10);
+				// Old method. 
+				if (improveMethod)
+				{
+					encodeRowIter(y, m.cols, pixels, encodedMode, 10);
+				}
+				else
+				{
+					encodeRow(y, m.cols, pixels);
+				}
+				//
 			}
-			else
+			catch (std::exception ex)
 			{
-				encodeRow(y, m.cols, pixels);
+				std::cout << "error at row " << y << "\n";
 			}
-			//
 					
 		}
 
@@ -932,6 +1069,8 @@ public:
 				splines.push_back(sp);
 			}
 		}
+
+		std::cout << " Splines " << splines.size() << "\n";
 
 		endProcess("createFromImage" + compressionModes[encodedMode]);
 
@@ -968,39 +1107,32 @@ public:
 		std::cout << "-------------------------------------" << "\n";
 	}
 
+
+
+	///////////////////////////////////////////////////////
 	virtual size_t encode(cv::Mat& _m, std::string fn)
 	{
+		gradients.clear();
+
+		startProcess("encode" + compressionModes[encodedMode]);
 		
 		createFromImage(_m);
 
+
+		std::sort(splines.begin(), splines.end(), splineSort);
+
 		unsigned int size = 0;
-		startProcess("encode" + compressionModes[encodedMode]);
 		vectorizeSplines();
 		/////////////////////////////////////////////////////
 	  // Compress using LZ4
 		char* srcBuffer = (char*)vectorized;
 		size_t srcSize = vectorized_count * 2;
 
-		size_t outSize = srcSize;
 		endProcess("encode" + compressionModes[encodedMode]);
 
+		std::cout << " [encode] Obtained size " << srcSize << " of " << _m.cols * _m.rows * 2 << "\n";
 
-		startProcess("zip" + compressionModes[encodedMode]);
-
-		if (zstd_compression_level > 0)
-		{
-#ifdef ZSTD
-			size_t const cBuffSize = ZSTD_compressBound(srcSize);
-
-			outSize = ZSTD_compressCCtx(ctx, outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
-#endif
-		}
-		else
-		{
-			outBuffer = (unsigned short*)srcBuffer;
-		}
-		endProcess("zip" + compressionModes[encodedMode]);
-
+		size_t outSize =  dictionaryCompression(srcBuffer, srcSize);
 	
 
 		if (fn != "")
@@ -1028,7 +1160,7 @@ public:
 
 	}
 	
-	virtual cv::Mat restoreAsImage()
+	virtual cv::Mat restoreAsImage(bool useGradient = false)
 	{
 		cv::Mat m;
 
@@ -1044,6 +1176,8 @@ public:
 		{
 			spline_data* sp = splines[i];
 			unsigned short value = 0;
+
+			if (sp->values_count == 0) sp->values_count = sp->values.size();
 
 			for (int i = 0; i < sp->values_count; i++)
 			{
@@ -1064,6 +1198,16 @@ public:
 				
 			}
 		}
+
+		if (useGradient)
+		{
+			for (int i = 0; i < gradients.size(); i = i+2)
+			{
+				int index = gradients[i + 1];
+				unsigned short value = (unsigned short)gradients[i];
+				pixels[index] = value;
+			}
+		}
 				
 		return m;
 	}
@@ -1080,12 +1224,8 @@ public:
 
 		auto start = high_resolution_clock::now();
 
-#ifdef ZSTD
-		size_t const cBuffSize = ZSTD_compressBound(srcSize);
-		size_t const outSize = ZSTD_compressCCtx(ctx,outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
-#else
-		size_t const outSize = srcSize;
-#endif
+		size_t const outSize = dictionaryCompression(srcBuffer, srcSize);
+
 		auto duration = duration_cast<milliseconds>(high_resolution_clock::now() - start);
 		//std::cout << " TIME ZSTD " << duration.count() << "\n";
 
@@ -1149,16 +1289,7 @@ public:
 		startProcess("decode" + compressionModes[encodedMode]);
 		if (zstd_compression_level > 0)
 		{
-			// bin mask
-#ifdef ZSTD
-			decSz = ZSTD_decompress(inBuffer, srcSize, compBuffer, outSize);
-
-			if (ZSTD_isError(decSz))
-			{
-				std::cout << ZSTD_getErrorName(decSz) << "\n";
-
-			}
-#endif
+			dictionaryDecompression((char*)compBuffer, outSize);
 		}
 		else
 		{
@@ -1256,16 +1387,18 @@ public:
 
 	void display(int row, int mode, int iter)
 	{
+		int maxH = 45000;
+		int hist_h = 400;
+
 		cv::Mat histImg;
-		histImg.create(cv::Size(w, 200), CV_8UC3);
+		histImg.create(cv::Size(w, hist_h), CV_8UC3);
 
 		histImg.setTo(255);
 		cv::RNG rng(12345);
 
-		int maxH = 45000;
-		int hist_h = 200;
+		
 		unsigned short* pixels = (unsigned short*)mt.data;
-		std::vector<spline_data*> ps =  encodeRowIter(row, this->mt.cols, pixels, mode, iter);
+		std::vector<spline_data*> ps = encodeRow(row, this->mt.cols, pixels);// , mode, iter);
 
 		double gerror = 0;
 		double max_error = 0;
@@ -1322,7 +1455,7 @@ public:
 					double y1 = (double)(v1) / (maxH)*histImg.rows;
 
 					/// Render Histogram
-					line(histImg, cv::Point(x, hist_h-y0), cv::Point(x+1, hist_h - y1), cv::Scalar(0,255,255), 1, 8, 0);
+					line(histImg, cv::Point(x, hist_h-y0), cv::Point(x+1, hist_h - y1), cv::Scalar(0,255,255), 2, 8, 0);
 				}
 				
 

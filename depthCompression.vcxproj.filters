@@ -8,16 +8,34 @@
     <ClCompile Include="u_ProcessTime.cpp">
       <Filter>tools</Filter>
     </ClCompile>
-    <ClCompile Include="varintdecode.cpp">
-      <Filter>tools</Filter>
-    </ClCompile>
-    <ClCompile Include="vbyte.cpp">
-      <Filter>tools</Filter>
-    </ClCompile>
     <ClCompile Include="bitstream.hpp">
       <Filter>encoder</Filter>
     </ClCompile>
-    <ClCompile Include="thirdparty\huffman.cpp" />
+    <ClCompile Include="cameraCapturer.cpp" />
+    <ClCompile Include="gpu\cl_MemHandler.cpp">
+      <Filter>cl</Filter>
+    </ClCompile>
+    <ClCompile Include="gpu\cl_utils.cpp">
+      <Filter>cl</Filter>
+    </ClCompile>
+    <ClCompile Include="gpu\gpu_param.cpp">
+      <Filter>cl</Filter>
+    </ClCompile>
+    <ClCompile Include="gpu\clEncoder.cpp">
+      <Filter>cl</Filter>
+    </ClCompile>
+    <ClCompile Include="clImplementation.cpp">
+      <Filter>cl</Filter>
+    </ClCompile>
+    <ClCompile Include="testTools.cpp">
+      <Filter>tools</Filter>
+    </ClCompile>
+    <ClCompile Include="jp2CPUEncoder.cpp">
+      <Filter>encoder</Filter>
+    </ClCompile>
+    <ClCompile Include="bitstream.cpp">
+      <Filter>encoder</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="quality_metrics_OpenCV.h">
@@ -26,17 +44,8 @@
     <ClInclude Include="u_ProcessTime.h">
       <Filter>tools</Filter>
     </ClInclude>
-    <ClInclude Include="varintdecode.h">
-      <Filter>tools</Filter>
-    </ClInclude>
-    <ClInclude Include="vbyte.h">
-      <Filter>tools</Filter>
-    </ClInclude>
     <ClInclude Include="timer.h">
       <Filter>tools</Filter>
-    </ClInclude>
-    <ClInclude Include="cameraCapturer.h">
-      <Filter>encoder</Filter>
     </ClInclude>
     <ClInclude Include="intSeqCompression.hpp">
       <Filter>encoder</Filter>
@@ -47,7 +56,6 @@
     <ClInclude Include="jp2CPUEncoder.h">
       <Filter>encoder</Filter>
     </ClInclude>
-    <ClInclude Include="thirdparty\huffman.h" />
     <ClInclude Include="thirdparty\simple_fft\check_fft.hpp">
       <Filter>fft</Filter>
     </ClInclude>
@@ -69,10 +77,32 @@
     <ClInclude Include="thirdparty\simple_fft\fft_settings.h">
       <Filter>fft</Filter>
     </ClInclude>
+    <ClInclude Include="cameraCapturer.h" />
+    <ClInclude Include="gpu\cl_MemHandler.h">
+      <Filter>cl</Filter>
+    </ClInclude>
+    <ClInclude Include="gpu\cl_utils.h">
+      <Filter>cl</Filter>
+    </ClInclude>
+    <ClInclude Include="gpu\clHeader.h">
+      <Filter>cl</Filter>
+    </ClInclude>
+    <ClInclude Include="gpu\gpu_param.h">
+      <Filter>cl</Filter>
+    </ClInclude>
+    <ClInclude Include="gpu\clEncoder.h">
+      <Filter>cl</Filter>
+    </ClInclude>
+    <ClInclude Include="testTools.h">
+      <Filter>tools</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
     <None Include="readme.md" />
+    <None Include="gpu\encoder.cl">
+      <Filter>cl</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="encoder">
@@ -86,6 +116,9 @@
     </Filter>
     <Filter Include="fft">
       <UniqueIdentifier>{b983748a-9128-4cad-bfeb-3f1649d784e3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="cl">
+      <UniqueIdentifier>{dbfe31c7-5b9c-4901-b124-dfa379ae66d6}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

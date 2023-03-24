@@ -80,6 +80,10 @@ namespace qm
 	{
 		int D = 15000;
 		
+		if (img_src.cols == 0) return 0;
+		if (img_compressed.cols == 0) return 0;
+
+
 		if (img_src.type() != CV_64F)
 		{
 			cv::Mat isrc, icomp;

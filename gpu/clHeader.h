@@ -21,8 +21,10 @@ using namespace std;
 #define CL_lonelyPixelsRemoval 2
 #define CL_quantization 8
 
-#define CL_ALLOCATION_PER_THREAD 50
+#define CL_ALLOCATION_PER_THREAD 120
 #define CL_TOTAL_ALLOCATION 60000
+#define CL_CLOSE_MASK 0xFFFE
+
 #if defined OPENCL_GPU
 
 typedef global int* Int_ptr;
@@ -101,6 +103,8 @@ typedef struct cl_memManager* mmgr_ptr;
 
 
 /// external
+void setThreadID(int threadID);
+
 void cl_encodeRowIter( int w, int rows, Short_PTR pixels, int mode, int itercount, mmgr_ptr  mMgr, spline_ptr allocated_splines,  int improved);
 void cl_vectorizeSplines(spline_ptr  splines, int splinesCount, Short_PTR vectorized, mmgr_ptr  mMgr, int encodedMode, int scale, int saveResidual);
 void mmger_init(mmgr_ptr mmgr, int count, int threadCount);

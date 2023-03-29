@@ -6,10 +6,32 @@
 #else
 
 #define CLK_LOCAL_MEM_FENCE 1
+bool definedTheadId = false;
+int _threadID = 0;
+void setThreadID(int threadID)
+{
+	if (threadID >= 0)
+	{
+		_threadID = threadID;
+		definedTheadId = true;
+	}
+	else
+	{
+		definedTheadId = false;
+	}
+
+}
+
 int openclPeekAtLastError() { return 0; }
 
 int get_group_id(int dim) { return 0; }
-int get_local_id(int dim) { return omp_get_thread_num(); }
+int get_local_id(int dim) 
+{ 
+	if (definedTheadId)
+		return _threadID;
+
+	return omp_get_thread_num(); 
+}
 
 int get_global_size(int dim) { return 0; }
 int get_local_size(int dim) { return 0; }
@@ -110,6 +132,7 @@ unsigned short cl_float_to_half(float x) { // IEEE-754 16-bit floating-point for
 
 void spline_clear(spline_ptr p)
 {
+	p->valid = 0;
 	p->values_count = 0;
 	p->effective = 0;
 	p->x0 = 0;
@@ -124,10 +147,15 @@ void spline_clear(spline_ptr p)
 	p->visited = 0;
 
 	for (int i = 0; i < 6; i++) p->coefs[i] = 0;
+#ifdef GPU
 	for (int i = 0; i < 5; i++) p->values[i] = 0;
 	for (int i = 0; i < 5; i++) p->cvalues[i] = 0;
 	for (int i = 0; i < 5; i++) p->residual[i] = 0;
-
+#else
+	for (int i = 0; i < SPLINE_VECTOR_SIZE; i++) p->values[i] = 0;
+	for (int i = 0; i < SPLINE_VECTOR_SIZE; i++) p->cvalues[i] = 0;
+	for (int i = 0; i < SPLINE_VECTOR_SIZE; i++) p->residual[i] = 0;
+#endif
 
 
 }
@@ -245,7 +273,7 @@ void cl_mem_init(mmgr_ptr mmgr , spline_ptr splines, int rows)
 {
 	int th_id = get_global_id(0);
 
-	if (thID > rows) return;
+	if (th_id > rows) return;
 
 	int baseID = th_id * CL_ALLOCATION_PER_THREAD;
 	mmgr->allocated_ids[th_id] = baseID; 
@@ -765,14 +793,14 @@ kernel
 #endif
 void cl_vectorizeSplines(spline_ptr  splines, int splinesCount, Short_PTR vectorized, mmgr_ptr  mMgr, int encodedMode, int scale, int saveResidual)
 {
-	int gthID = get_local_id(0);
+	int thID = get_local_id(0);
 
-	if (gthID > 0) return;
-	int vectorized_count = 0;
+	int vectorized_count = thID * splinesCount;
 
 	mMgr->validSplines = 0;
 
-	for (int thID = 0; thID < mMgr->activeThreads; thID++)
+	vectorized_count += 1;
+
 	{
 		int startIndex = thID * CL_ALLOCATION_PER_THREAD;
 		int endIndex = mMgr->allocated_ids[thID];
@@ -853,7 +881,8 @@ void cl_vectorizeSplines(spline_ptr  splines, int splinesCount, Short_PTR vector
 			}
 		}
 	}
-
-	mMgr->final_OuputSize = vectorized_count * 2;
+	vectorized[thID * splinesCount] = vectorized_count - thID * splinesCount;
+	
+	
 }
 

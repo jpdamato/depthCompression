@@ -118,7 +118,15 @@ void showProcessTime()
 		{
 			totalTime += t->acum;
 		}
-		std::cout << " ..." << t->name << " lastTime " << t->elapsedTime() << " totalTime " << t->acum << "\n";
+		if (t->parent == NULL || t->parent->name == "root")
+		{
+			std::cout << " ..." << t->name << " lastTime " << t->elapsedTime() << " totalTime " << t->acum << "\n";
+		}
+		else
+		{
+			std::cout << " ... ..." << t->name << " lastTime " << t->elapsedTime() << " totalTime " << t->acum << "\n";
+		}
+		
 	}
 	std::cout << ".............................................." << "\n";
 	std::cout << "          TOTAL TIME : " << totalTime << "\n";

@@ -11,11 +11,13 @@
 #define CL_MIN_EXPECTED_ERROR 128
 
 #define CL_MIN_SAMPLES_EQ 24
-#define CL_lonelyPixelsRemoval 1
+#define CL_lonelyPixelsRemoval 2
 #define CL_quantization 8
 
+#define CL_ALLOCATION_PER_THREAD 120
 #define CL_TOTAL_ALLOCATION 60000
-#define CL_ALLOCATION_PER_THREAD 50
+#define CL_CLOSE_MASK 0xFFFE
+
 #if defined OPENCL_GPU
 
 typedef global int* Int_ptr;
@@ -46,11 +48,11 @@ typedef float* pFloat_ptr;
 
 struct cl_spline_data
 {
-	bool valid;
-	bool effective;
+	int valid;
+	int effective;
 	unsigned short x0;
 	unsigned short y0;
-	bool visited;
+	int visited;
 	int cvalues_count;
 	int res_counter;
 	unsigned short values_count;
@@ -74,6 +76,7 @@ typedef struct cl_spline_data** spline_ptr_ptr;
 
 struct cl_memManager
 {
+
 	spline_ptr allocated_splines;
 	int allocated_ids[2048];
 	int allocated_size;
@@ -85,12 +88,13 @@ struct cl_memManager
 };
 
 
-
 #if defined OPENCL_GPU
 typedef global struct cl_memManager* mmgr_ptr;
 #else
 typedef struct cl_memManager* mmgr_ptr;
 #endif
+
+///////////////////////////////////////
 
 #ifdef OPENCL_GPU
 
@@ -201,6 +205,7 @@ unsigned short cl_float_to_half(float x) { // IEEE-754 16-bit floating-point for
 
 void spline_clear(spline_ptr p)
 {
+	p->valid = 0;
 	p->values_count = 0;
 	p->effective = 0;
 	p->x0 = 0;
@@ -215,9 +220,15 @@ void spline_clear(spline_ptr p)
 	p->visited = 0;
 
 	for (int i = 0; i < 6; i++) p->coefs[i] = 0;
+#ifdef GPU
 	for (int i = 0; i < 5; i++) p->values[i] = 0;
 	for (int i = 0; i < 5; i++) p->cvalues[i] = 0;
 	for (int i = 0; i < 5; i++) p->residual[i] = 0;
+#else
+	for (int i = 0; i < SPLINE_VECTOR_SIZE; i++) p->values[i] = 0;
+	for (int i = 0; i < SPLINE_VECTOR_SIZE; i++) p->cvalues[i] = 0;
+	for (int i = 0; i < SPLINE_VECTOR_SIZE; i++) p->residual[i] = 0;
+#endif
 
 
 }
@@ -279,6 +290,25 @@ float spline_error(spline_ptr p)
 }
 
 
+spline_ptr mmger_getNew(mmgr_ptr mmgr, spline_ptr allocated_splines)
+{
+	// only one thread should come here
+	int th_id = get_global_id(0);
+	int id = mmgr->allocated_ids[th_id];
+
+	mmgr->allocated_ids[th_id]++;
+
+	if (id >= mmgr->total_size)
+	{
+		//printf("Not enough mem ");
+		return NULL;
+	}
+	///  Clear data
+	spline_clear(&allocated_splines[id]);
+
+	return &allocated_splines[id];
+}
+
 void mmger_releaseAll(mmgr_ptr mmgr, spline_ptr allocated_splines, int threadCount)
 {
 
@@ -299,9 +329,11 @@ void mmger_init(mmgr_ptr mmgr, int count, int threadCount)
 
 	mmgr->total_size = count * CL_ALLOCATION_PER_THREAD;
 
+	mmgr->activeThreads = count;
+
 	for (int i = 0; i < threadCount; i++) mmgr->allocated_ids[i] = i * CL_ALLOCATION_PER_THREAD;
 
-	//for (int i = 0; i < count; i++) mmgr->allocated[i] = new cl_spline_data();
+	for (int i = 0; i < count * CL_ALLOCATION_PER_THREAD; i++) spline_clear(&mmgr->allocated_splines[i]);
 #endif
 }
 
@@ -310,7 +342,7 @@ void mmger_init(mmgr_ptr mmgr, int count, int threadCount)
 #ifdef OPENCL_GPU 
 kernel
 #endif
-void cl_mem_init(mmgr_ptr mmgr, spline_ptr splines,int rows)
+void cl_mem_init(mmgr_ptr mmgr, spline_ptr splines, int rows)
 {
 	int th_id = get_global_id(0);
 
@@ -661,29 +693,10 @@ bool split(spline_ptr p, spline_ptr p0, spline_ptr p1, int mode)
 
 // Make proposal then split
 
-spline_ptr mmger_getNew(mmgr_ptr mmgr, spline_ptr allocated_splines)
-{
-	// only one thread should come here
-	int th_id = get_global_id(0);
-	int id = mmgr->allocated_ids[th_id];
-
-	mmgr->allocated_ids[th_id]++;
-
-	if (id >= mmgr->total_size)
-	{
-		
-		return NULL;
-	}
-	///  Clear data
-	
-	return &allocated_splines[id];
-}
-
-
 #ifdef OPENCL_GPU 
 kernel
 #endif
-void cl_encodeRowIter(int w,int rows, Short_PTR pixels, int mode, int itercount, mmgr_ptr  mMgr, spline_ptr allocated_splines, int improved)
+void cl_encodeRowIter(int w, int rows, Short_PTR pixels, int mode, int itercount, mmgr_ptr  mMgr, spline_ptr allocated_splines, int improved)
 {
 	int thID = get_local_id(0);
 
@@ -755,7 +768,7 @@ void cl_encodeRowIter(int w,int rows, Short_PTR pixels, int mode, int itercount,
 			fit(p, mode);
 			p->valid = 1;
 			p->effective = 1;
-			
+
 		}
 		else
 		{
@@ -764,25 +777,103 @@ void cl_encodeRowIter(int w,int rows, Short_PTR pixels, int mode, int itercount,
 		}
 
 	}
+	/// split planes	
+	/*
+	if (improved)
+	{
+		spline_ptr new_ps[1024];
+		int np_count = 0;
+
+		for (int i = 0; i < ps_counter; i++) ps[i]->visited = false;
+
+		for (int iter = 0; iter < itercount; iter++)
+		{
+			bool changed = false;
+
+			for (int i = 0; i < ps_counter; i++)
+			{
+				spline_ptr p = ps[i];
+				if (!p->valid) continue;
+
+				if (p->visited || spline_error(p) < CL_MIN_EXPECTED_ERROR)
+				{
+					p->visited = true;
+					new_ps[np_count] = p;	np_count++;
+					continue;
+				}
+
+				if (p->values_count > CL_MIN_SAMPLES_EQ)
+				{
+					spline_ptr p0 = mmger_getNew(mMgr, allocated_splines);
+					spline_ptr p1 = mmger_getNew(mMgr, allocated_splines);
+
+					if (split(p, p0, p1, mode))
+					{
+						changed = true;
+						new_ps[np_count] = p0;	np_count++;
+						new_ps[np_count] = p1;	np_count++;
+						p->valid = 0;
+					}
+					else
+					{
+						new_ps[np_count] = p1;	np_count++;
+					}
+				}
+				else
+				{
+					new_ps[np_count] = p;	np_count++;
+				}
+
+			}
+
+			if (!changed) break;
+
+			for (int i = 0; i < np_count; i++)
+			{
+				ps[i] = new_ps[i];
+			}
+			ps_counter = np_count;
+
+		}
+
+		// Mask as final
+		for (int i = 0; i < np_count; i++)
+		{
+			new_ps[i]->effective = true;
+		}
+	}
+	else
+
+	{
+
+		// Mask as final
+		for (int i = 0; i < ps_counter; i++)
+		{
+		//	ps[i]->effective = true;
+		}
+	}
+	*/
+
 }
 
 
 
 
 ///////////////////////////////
+///////////////////////////////
 #ifdef OPENCL_GPU 
 kernel
 #endif
 void cl_vectorizeSplines(spline_ptr  splines, int splinesCount, Short_PTR vectorized, mmgr_ptr  mMgr, int encodedMode, int scale, int saveResidual)
 {
-	int gthID = get_local_id(0);
+	int thID = get_local_id(0);
 
-	if (gthID > 0) return;
-	int vectorized_count = 0;
+	int vectorized_count = thID * splinesCount;
 
 	mMgr->validSplines = 0;
 
-	for (int thID = 0; thID < mMgr->activeThreads; thID++)
+	vectorized_count += 1;
+
 	{
 		int startIndex = thID * CL_ALLOCATION_PER_THREAD;
 		int endIndex = mMgr->allocated_ids[thID];
@@ -863,7 +954,7 @@ void cl_vectorizeSplines(spline_ptr  splines, int splinesCount, Short_PTR vector
 			}
 		}
 	}
+	vectorized[thID * splinesCount] = vectorized_count - thID * splinesCount;;
 
-	mMgr->final_OuputSize = vectorized_count * 2;
 }
 

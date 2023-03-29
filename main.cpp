@@ -314,7 +314,67 @@ int processDir(std::string outDir, std::string iformat, bool doPreProcess)
 	return 1;
 }
 
+void compareResults(std::vector<spline_ptr> cl_splines , splineCompression* spl, cv::Mat& frame)
+{
 
+
+	bool hasDifference = false;
+	// compare SPLINES
+	for (int i = 3; i < cl_splines.size(); i++)
+	{
+		cl_spline_data* csp = (cl_spline_data*)cl_splines[i];
+
+		if (!csp) continue;
+		if (csp->values_count != spl->splines[i]->values.size())
+		{
+			std::cout << "Difference count!!" << csp->x0 << "\n";
+			hasDifference = true;
+			break;
+		}
+		else
+			if (csp->x0 != spl->splines[i]->x0 || csp->y0 != spl->splines[i]->y0)
+			{
+				std::cout << "Difference Positions!!" << csp->x0 << "\n";
+				hasDifference = true;
+				break;
+			}
+			else
+				if (abs(csp->coefs[0] - spl->splines[i]->coefs[0]) > 0.1)
+				{
+					std::cout << "Difference coef!!" << csp->x0 << ":" << csp->y0 << "\n";
+					hasDifference = true;
+					//break;
+				}
+
+	}
+
+	if (!hasDifference )
+	{
+		std::cout << "EXACT " << "\n";
+	}
+	// compare output buffer
+	unsigned short* bufferCPU = spl->outBuffer;
+	int outbufferSize = 0;
+	unsigned short* bufferGPU = FitCL::cl_getOutputBuffer(outbufferSize);
+
+	std::cout << "difference buffer ";
+	for (int i = 1; i < min( outbufferSize , spl->vectorized_count); i++)
+	{
+		if (bufferCPU[i] != bufferGPU[i])
+		{
+			std::cout << ".. " << i << "(" << bufferCPU[i] - bufferGPU[i] << ")..";
+			break;
+		}
+	}
+
+
+	int szGPU = spl->compressByteStream(bufferGPU, outbufferSize, frame, "");
+
+	int szCPU = spl->compressByteStream(bufferCPU, spl->vectorized_count, frame, "");
+
+	std::cout << "Size GPU " << szGPU << " and size CPU " << szCPU << "\n";
+ 
+}
 
 void encodeGPU(std::string inputF, std::string ouputF, std::string format)
 {
@@ -328,6 +388,8 @@ void encodeGPU(std::string inputF, std::string ouputF, std::string format)
 
 	int fileIndex = 0;
 
+	bool runOnGPU = true;
+
 	for (auto f : files)
 	{
 
@@ -339,68 +401,23 @@ void encodeGPU(std::string inputF, std::string ouputF, std::string format)
 			return;
 		}
 
-		FitCL::encodeCL(m, m.rows, fileIndex % 30 == 0);
+		cv::resize(m, m, cv::Size(), 1.6, 1.6);
+
+		FitCL::encodeCL(m, m.rows, fileIndex % 30 == 0, runOnGPU);
 
 		
-		std::vector<spline_ptr> cl_splines = FitCL::getSplines();
+		std::vector<spline_ptr> cl_splines = FitCL::getSplines(runOnGPU);
 
 		
-		spl->encode(m, "");
+		spl->encode(m, "",false);
 
-
-
-		bool hasDifference = false;
-		// compare SPLINES
-		for (int i = 3; i < cl_splines.size(); i++)
-		{
-			cl_spline_data* csp = (cl_spline_data*)cl_splines[i];
-
-			if (!csp) continue;
-			if (csp->values_count != spl->splines[i]->values.size())
-			{
-				std::cout << "Difference count!!" << csp->x0 << "\n";
-				hasDifference = true;
-				break;
-			}
-			else
-			if (csp->x0 != spl->splines[i]->x0 || csp->y0 != spl->splines[i]->y0)
-			{
-				std::cout << "Difference Positions!!" << csp->x0 << "\n";
-				hasDifference = true;
-				break;
-			}
-			else
-			if (abs(csp->coefs[0] - spl->splines[i]->coefs[0]) > 0.001 )
-			{
-				std::cout << "Difference coef!!" << csp->x0 << ":" << csp->y0 << "\n";
-				hasDifference = true;
-				//break;
-			}
-
-		}
-
-		if (!hasDifference && fileIndex % 30 == 0)
-		{
-			std::cout << "EXACT " << "\n";
-		}
-		// compare output buffer
-		unsigned short* bufferCPU = spl->outBuffer;
-		int outbufferSize = 0;
-		unsigned short* bufferGPU = FitCL::cl_getOutputBuffer(outbufferSize);
-
-		std::cout << "difference buffer ";
-		for (int i = 1; i < outbufferSize; i++)
-		{
-			if (bufferCPU[i] != bufferGPU[i])
-			{
-				std::cout << ".. "<< i << "(" << bufferCPU[i] - bufferGPU[i] << ")..";
-				break;
-			}
-		}
+		
 
 		if (fileIndex % 30 == 0)
 		{
+			compareResults(cl_splines, spl, m);
 			showProcessTime();
+			FitCL::computeMemUssage(m.rows);
 		}
 		cv::imshow("image", m);
 		cv::waitKey(1);

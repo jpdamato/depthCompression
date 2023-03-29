@@ -20,8 +20,9 @@
 
 namespace FitCL
 {
-	std::vector<spline_ptr> getSplines();
-	void encodeCL(cv::Mat& m, int nthreads, bool verbose);
+	std::vector<spline_ptr> getSplines(bool runOnGPU);
+	void computeMemUssage(int threadsCount);
+	void encodeCL(cv::Mat& m, int nthreads, bool verbose,  bool runOnGPU, int saveResidual = 0);
 	unsigned short* cl_getOutputBuffer(int& outSize);
 	int cl_writeOutput(std::string fn);
 	int initEncoderCL(std::string cl_dir, int localWG, int platformProcessingIndex, int deviceProcessingIndex);

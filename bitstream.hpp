@@ -530,13 +530,13 @@ public:
 #endif
 	}
 
-	
+
 	///////////////////////////////
 	void vectorizeSplines()
 	{
 		allocateMem();
 		vectorized_count = 0;
-		
+
 
 		for (auto& sp : splines)
 		{
@@ -544,10 +544,10 @@ public:
 			vectorized[vectorized_count] = sp->values_count; vectorized_count++;
 			vectorized[vectorized_count] = sp->x0; vectorized_count++;
 			vectorized[vectorized_count] = sp->y0; vectorized_count++;
-		
+
 			if (encodedMode == LOSSLESS_COMPRESSION)
 			{
-				vectorized[vectorized_count]  = sp->coefs[0] ; vectorized_count++;
+				vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
 				if (sp->values_count == 1)
 				{
 					/////
@@ -556,7 +556,7 @@ public:
 				{
 					for (int i = 0; i < sp->cvalues.size() - 1; i = i + 2)
 					{
-						vectorized[vectorized_count] = as_ushort(sp->cvalues[i]/scale, sp->cvalues[i + 1] / scale) ; vectorized_count++;
+						vectorized[vectorized_count] = as_ushort(sp->cvalues[i] / scale, sp->cvalues[i + 1] / scale); vectorized_count++;
 					}
 
 					if (sp->cvalues.size() % 2 == 1)
@@ -580,22 +580,22 @@ public:
 						vectorized[vectorized_count] = float_to_half(sp->coefs[1]); vectorized_count++;
 					}
 					else
-					if (encodedMode == SPLINE_COMPRESSION)
-					{
-						vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[1]); vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[2]); vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[3]); vectorized_count++;
-					}
-					else
-					{
-						vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[1]); vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[2]); vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[3]); vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[4]*1000); vectorized_count++;
-						vectorized[vectorized_count] = float_to_half(sp->coefs[5]*10000); vectorized_count++;
-					}
+						if (encodedMode == SPLINE_COMPRESSION)
+						{
+							vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[1]); vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[2]); vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[3]); vectorized_count++;
+						}
+						else
+						{
+							vectorized[vectorized_count] = sp->coefs[0]; vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[1]); vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[2]); vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[3]); vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[4] * 1000); vectorized_count++;
+							vectorized[vectorized_count] = float_to_half(sp->coefs[5] * 10000); vectorized_count++;
+						}
 				}
 
 
@@ -626,25 +626,25 @@ public:
 
 		// clear buffers
 #pragma omp parallel for
-		for (int i = 0; i < h * w * 2; i++) 
-		{ 
-			inBuffer[i] = 0;  
-			compBuffer[i] = 0;  
-			outBuffer[i] = 0;		
+		for (int i = 0; i < h * w * 2; i++)
+		{
+			inBuffer[i] = 0;
+			compBuffer[i] = 0;
+			outBuffer[i] = 0;
 			vectorized[i] = 0;
 		}
 
 
 	}
 
-	
+
 	double similitud(spline_data* p0, spline_data* p1, int mode)
 	{
 		int dif = p0->x0 + p0->values_count - p1->x0;
 
 		if (dif > 3) return 10.0;
 
-		double d = p0->getValue(p1->x0 - p0->x0, mode) - p1->getValue(0,mode);
+		double d = p0->getValue(p1->x0 - p0->x0, mode) - p1->getValue(0, mode);
 
 		return d / 10.0;
 	}
@@ -656,8 +656,8 @@ public:
 
 		// fill holes
 		int dif = p0->x0 + p0->values_count - p1->x0;
-		
-		for (int i = 0; i < dif; i++) p0->values.push_back(p0->values[p0->values_count -1]);
+
+		for (int i = 0; i < dif; i++) p0->values.push_back(p0->values[p0->values_count - 1]);
 
 		for (int i = 0; i < p1->values_count; i++) p0->values.push_back(p1->values[i]);
 
@@ -686,12 +686,12 @@ public:
 		// add values while error is low
 		int counter = 1;
 		int best_middle = 0;
-		
+
 		for (int middle = 2; middle < p->values.size() - 10; middle = middle + 2)
 		{
 			p0->values.clear();
 			p1->values.clear();
-		
+
 			for (int i = 0; i < p->values.size(); i = i + 1)
 			{
 				unsigned short v0 = p->values[i]; // orig value
@@ -707,7 +707,7 @@ public:
 			double error1 = p1->error();
 
 
-			if ((error0 * 0.5 + error1 * 0.5 + 4000/ middle) < worstError)
+			if ((error0 * 0.5 + error1 * 0.5 + 4000 / middle) < worstError)
 			{
 				worstError = error0 * 0.5 + error1 * 0.5 + 4000 / middle; // MAX(error0, error1);
 				best_middle = middle;
@@ -716,8 +716,8 @@ public:
 		}
 
 
-		if (worstError < p->error() )
-			{
+		if (worstError < p->error())
+		{
 
 			p0->values.clear();
 			p1->values.clear();
@@ -733,19 +733,19 @@ public:
 			p1->fit(mode, quantization);
 			p0->fit(mode, quantization);
 
-				p0->x0 = p->x0;
-				p0->y0 = p->y0;
-				p1->x0 = p->x0 + p0->values_count;
-				p1->y0 = p->y0;
+			p0->x0 = p->x0;
+			p0->y0 = p->y0;
+			p1->x0 = p->x0 + p0->values_count;
+			p1->y0 = p->y0;
 
-				p->valid = 0;
-				p0->valid = 1;
-				p1->valid = 1;
-				p0->visited = true; // not process again
+			p->valid = 0;
+			p0->valid = 1;
+			p1->valid = 1;
+			p0->visited = true; // not process again
 
-				return true;
-			}
-		
+			return true;
+		}
+
 		return false;
 	}
 
@@ -757,7 +757,7 @@ public:
 		// Take a first approach
 		std::vector<spline_data*> ps;
 
-	//	if (y != 250) return ps;
+		//	if (y != 250) return ps;
 		int window = 5;
 		/////////////////////////////////
 		for (int x = 0; x < cols; x++)
@@ -769,20 +769,20 @@ public:
 			p->x0 = x;
 			p->y0 = y;
 			p->coefs[0] = value;
-			
+
 			// check consecutive pixels
 			while (true)
 			{
-				if (x >= cols-1) break;
+				if (x >= cols - 1) break;
 				// take a sample
 				unsigned short value2 = pixels[y * w + x];
-				
+
 				// may be it is noise
 				if (value2 < 300)
 				{
 					break;
 				}
-				
+
 				p->values.push_back(value2);
 				p->values_count = p->values.size();
 				x++;
@@ -791,15 +791,15 @@ public:
 			p->fit(mode, quantization);
 
 			if (p->values_count >= lonelyPixelsRemoval)
-				{
-					p->valid = 1;
-					ps.push_back(p);
-				}
+			{
+				p->valid = 1;
+				ps.push_back(p);
+			}
 			else
 			{
 				mtx.lock();
 				gradients.push_back(p->values[0]);
-				gradients.push_back(p->y0*cols+p->x0);
+				gradients.push_back(p->y0 * cols + p->x0);
 				mtx.unlock();
 			}
 
@@ -813,7 +813,7 @@ public:
 
 				for (auto p : ps) p->visited = false;
 
-				for (int i = 0 ; i<ps.size() ; i++)
+				for (int i = 0; i < ps.size(); i++)
 				{
 					spline_data* p = ps[i];
 					if (!p->valid) continue;
@@ -825,7 +825,7 @@ public:
 						continue;
 					}
 
-					if (p->values_count >  MIN_SAMPLES_EQ)
+					if (p->values_count > MIN_SAMPLES_EQ)
 					{
 						spline_data* p0 = memMgr.getNew();
 						spline_data* p1 = memMgr.getNew();
@@ -852,7 +852,7 @@ public:
 			}
 		}
 		return ps;
-	
+
 	}
 
 	ZSTD_CDict* cdictPtr = NULL;
@@ -869,7 +869,7 @@ public:
 #ifdef ZSTD
 			size_t const cBuffSize = ZSTD_compressBound(srcSize);
 
-			
+
 
 			// check if exists Dictionary
 			if (std::experimental::filesystem::exists(dictionary))
@@ -880,7 +880,7 @@ public:
 			}
 			else
 			{
-				
+
 
 				outSize = ZSTD_compressCCtx(cctx, outBuffer, cBuffSize, srcBuffer, srcSize, zstd_compression_level);
 			}
@@ -899,7 +899,7 @@ public:
 
 	size_t dictionaryDecompression(char* srcBuffer, size_t srcSize)
 	{
-		size_t outSize = 0 , decSz;
+		size_t outSize = 0, decSz;
 
 		unsigned long long const rSize = ZSTD_getFrameContentSize(srcBuffer, srcSize);
 
@@ -956,7 +956,7 @@ public:
 					break;
 				}
 
-				if (abs(value - value2) < 128  || abs(value - value3) < 128 )
+				if (abs(value - value2) < 128 || abs(value - value3) < 128)
 				{
 					p->values.push_back(value2);
 					value = value2;
@@ -984,7 +984,7 @@ public:
 					p->valid = 0;
 					mtx.lock();
 					gradients.push_back(p->values[0]);
-					gradients.push_back(p->y0*cols + p->x0);
+					gradients.push_back(p->y0 * cols + p->x0);
 					mtx.unlock();
 				}
 				else
@@ -1000,7 +1000,7 @@ public:
 
 		if (quantizationMode != LOSSLESS_COMPRESSION)
 		{
-			
+
 			for (int iter = 0; iter < 3; iter++)
 			{
 				for (int i = 0; i < ps.size() - 1; i++)
@@ -1018,7 +1018,7 @@ public:
 	}
 
 
-	virtual void createFromImage(cv::Mat&m)
+	virtual void createFromImage(cv::Mat& m, bool verbose = false)
 	{
 		std::mutex mtx;
 		this->mt = m.clone();
@@ -1029,7 +1029,7 @@ public:
 		h = m.rows;
 		w = m.cols;
 
-		
+
 		allocateMem();
 		startProcess("createFromImage" + compressionModes[encodedMode]);
 		unsigned short* pixels = (unsigned short*)m.data;
@@ -1058,7 +1058,7 @@ public:
 			{
 				std::cout << "error at row " << y << "\n";
 			}
-					
+
 		}
 
 		splines.clear();
@@ -1069,9 +1069,10 @@ public:
 				splines.push_back(sp);
 			}
 		}
-
-		std::cout << " Splines " << splines.size() << "\n";
-
+		if (verbose)
+		{
+			std::cout << " Splines " << splines.size() << "\n";
+		}
 		endProcess("createFromImage" + compressionModes[encodedMode]);
 
 	}
@@ -1084,7 +1085,7 @@ public:
 		for (auto p : splines)
 		{
 			double err = p->error();
-			if (err> maxError)
+			if (err > maxError)
 			{
 				maxError = p->error();
 			}
@@ -1101,39 +1102,26 @@ public:
 		std::cout << " Splines " << splines.size() << "\n";
 		std::cout << "   Min Error " << minError << "\n";
 		std::cout << "   Max Error " << maxError << "\n";
-		std::cout << "	 Mean Error " << accumError/splines.size() << "\n";
+		std::cout << "	 Mean Error " << accumError / splines.size() << "\n";
 
 
 		std::cout << "-------------------------------------" << "\n";
 	}
 
 
-
-	///////////////////////////////////////////////////////
-	virtual size_t encode(cv::Mat& _m, std::string fn)
+	int compressByteStream(unsigned short* vector,int   vecLength, cv::Mat& frame, std::string fn)
 	{
-		gradients.clear();
-
-		startProcess("encode" + compressionModes[encodedMode]);
-		
-		createFromImage(_m);
-
-
-		std::sort(splines.begin(), splines.end(), splineSort);
-
-		unsigned int size = 0;
-		vectorizeSplines();
 		/////////////////////////////////////////////////////
-	  // Compress using LZ4
-		char* srcBuffer = (char*)vectorized;
-		size_t srcSize = vectorized_count * 2;
+  // Compress using LZ4
+		char* srcBuffer = (char*)vector;
+		size_t srcSize = vecLength * 2;
 
-		endProcess("encode" + compressionModes[encodedMode]);
+		startProcess("Bytestream compression");
 
-		std::cout << " [encode] Obtained size " << srcSize << " of " << _m.cols * _m.rows * 2 << "\n";
+		std::cout << " [encode] Obtained size " << srcSize << " of " << frame.cols * frame.rows * 2 << "\n";
 
-		size_t outSize =  dictionaryCompression(srcBuffer, srcSize);
-	
+		size_t outSize = dictionaryCompression(srcBuffer, srcSize);
+
 
 		if (fn != "")
 		{
@@ -1147,8 +1135,8 @@ public:
 			out.write((const char*)&w, 2);
 			out.write((const char*)&h, 2);
 			out.write((const char*)&encodedMode, 2);
-			out.write((const char*)&zstd_compression_level, 2);			
-			
+			out.write((const char*)&zstd_compression_level, 2);
+
 			// bin mask
 			out.write((const char*)outBuffer, outSize);
 
@@ -1156,7 +1144,39 @@ public:
 			out.close();
 		}
 
+		endProcess("Bytestream compression");
+
 		return outSize;
+	}
+
+	unsigned short* getByteStream()
+	{
+		return vectorized;
+	}
+
+	///////////////////////////////////////////////////////
+	virtual size_t encode(cv::Mat& _m, std::string fn, bool compress =  true)
+	{
+		gradients.clear();
+
+		startProcess("encode" + compressionModes[encodedMode]);
+		
+		createFromImage(_m);
+
+
+		std::sort(splines.begin(), splines.end(), splineSort);
+
+		unsigned int size = 0;
+		vectorizeSplines();
+
+		endProcess("encode" + compressionModes[encodedMode]);
+
+		if (compress)
+		{
+			compressByteStream(vectorized,vectorized_count, _m, fn);
+		}
+		else
+			return 0;
 
 	}
 	

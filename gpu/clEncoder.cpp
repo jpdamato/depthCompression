@@ -43,29 +43,66 @@ namespace FitCL
 		return ( (sp0->y0*2000+ sp0->x0) < (sp1->y0 * 2000 + sp1->x0));
 	}
 
+	// GPU Buffers
+	gpuBuffer* gb_Mgr;
+	gpuBuffer* gb_Image;
+	gpuBuffer* gb_Splines;
+	gpuBuffer* gb_Vectorized , *gb_TempVectorized;
 
-	std::vector<spline_ptr> getSplines()
+
+	
+	spline_ptr allocated_splines = NULL;
+	unsigned short* pixels = NULL;
+	unsigned short* vectorized = NULL;
+	unsigned short* temp_vectorized = NULL;
+
+	int outputSize = 0;
+	int w, h;
+
+
+
+	std::vector<spline_ptr> getSplines(bool runOnGPU )
 	{
-		
+
+		if (runOnGPU)
+		{
+			int iclError = gpuMemHandler::ReadBuffer(gb_Splines, CL_TRUE, 0, true);
+			clUtils::assertCL(iclError);
+		}
 		std::vector<spline_ptr> sp;
 
 		for (int i = 0; i < max_splines; i++)
 		{
-			sp.push_back(&splines[i]);
+			if (allocated_splines[i].valid > 0 && allocated_splines[i].values_count > 0)
+			{
+				sp.push_back(&allocated_splines[i]);
+			}
 		}
 		return sp;
 	}
 
-	gpuBuffer* gb_Mgr;
-	gpuBuffer* gb_Image;
-	gpuBuffer* gb_Splines;
+	void computeMemUssage(int threadsCount)
+	{
+		std::cout << "-------------------------------------" << "\n";
+		std::cout << " Test GPU mem analysis " << "\n";
 
-	bool runOnGPU = true;
-	spline_ptr allocated_splines = NULL;
-	unsigned short* pixels = NULL;
-	unsigned short* vectorized = NULL;
-	int outputSize = 0;
-	int w, h;
+		int accum = 0;
+		int counter = 0;
+		int unused = 0;
+		int maxA = 0;
+		for (int i = 0; i < threadsCount; i++)
+		{
+			
+			accum += mmgr->allocated_ids[i] - CL_ALLOCATION_PER_THREAD * i;
+			maxA = max(maxA, mmgr->allocated_ids[i] - CL_ALLOCATION_PER_THREAD * i );
+			counter++;
+		}
+		float memUssage = accum;
+		std::cout << " Average memmory usage " << memUssage << "\n";
+		std::cout << " Avg per lots  " << accum/ counter << "\n";
+		std::cout << " Max  " << maxA << "\n";
+		std::cout << "-------------------------------------" << "\n";
+	}
 
 	void testMemAssigment(cv::Mat& m)
 	{
@@ -105,10 +142,12 @@ namespace FitCL
 	int frameIndex = 0; 
 	cl_memManager* out_mmgr = NULL;
 
-	void encodeCL(cv::Mat& m, int nthreads, bool verbose)
+	void encodeCL(cv::Mat& m, int nthreads, bool verbose, bool runOnGPU, int saveResidual)
 	{
 		if (!pixels) pixels = new unsigned short[m.cols * m.rows ];
-		if (!vectorized) vectorized = new unsigned short[m.cols * m.rows * 2];
+		if (!vectorized) vectorized = new unsigned short[m.cols * m.rows *2];
+		if (!temp_vectorized) temp_vectorized = new unsigned short[m.cols * m.rows *2 ];
+
 
 		if (!out_mmgr)
 			out_mmgr = new cl_memManager();
@@ -137,7 +176,9 @@ namespace FitCL
 			allocated_splines = mmgr->allocated_splines;
 
 			gb_Splines = gpuMemHandler::getBuffer(mmgr->allocated_splines, true,2, 1, "splines");
-			gb_Mgr = gpuMemHandler::getBuffer(mmgr,true, 2,1, "manager");
+			gb_Mgr = gpuMemHandler::getBuffer(mmgr,true, 2,1, "manager"); 
+			gb_TempVectorized = gpuMemHandler::getBuffer(temp_vectorized, true, 2, 1, "temp_vector");
+			gb_Vectorized = gpuMemHandler::getBuffer(vectorized, true, 2, 1, "vector");
 			
 		}
 		
@@ -145,7 +186,7 @@ namespace FitCL
 		gb_Image = gpuMemHandler::getBuffer(pixels, false, 1, 0, "image");
 
 		mmgr->allocated_size = 0;
-		max_splines = 0;
+		max_splines = m.rows * CL_ALLOCATION_PER_THREAD;
 
 		omp_set_num_threads(m.rows);
 		//run test first time
@@ -160,7 +201,6 @@ namespace FitCL
 		// call kernels
 		if (runOnGPU)
 		{
-			
 			
 			kernelCall("cl_mem_init", clUtils::opencl_gridSize(m.rows, 16), 16,
 				{ mmgr , allocated_splines,m.rows }, {  });
@@ -186,45 +226,52 @@ namespace FitCL
 			}
 		}
 		endProcess("cl_createFromImage");
-
-		int64 nw = cv::getTickCount();
-		std::cout << "Time " << (cv::getTickCount() - nw) / cv::getTickFrequency() << "\n";
-
-		endProcess("encodeCL");
+			
 
 		startProcess("cl_vectorize_2");
 		if (runOnGPU)
 		{
 
-			kernelCall("cl_vectorizeSplines", clUtils::opencl_gridSize(1, 1), 1,
-				{ allocated_splines ,m.rows * CL_ALLOCATION_PER_THREAD,vectorized,mmgr, CL_SPLINE_COMPRESSION, 8, true }, { vectorized, mmgr });
+			kernelCall("cl_vectorizeSplines", clUtils::opencl_gridSize(m.rows, 16), 16,
+				{ allocated_splines ,m.cols ,temp_vectorized,mmgr, CL_SPLINE_COMPRESSION, 8, saveResidual }, { temp_vectorized, mmgr });
 			
 		}
 		else
 		{
-			
-			for (int i = 0; i < mmgr->total_size; i++)
+#pragma omp parallel for
+			for (int y = 0; y < m.rows; y++)
 			{
-				if (allocated_splines[i].effective > 0)
-				{
-					splines[max_splines] = allocated_splines[i];
-					max_splines++;
-
-				}
+				//std::sort(splines, splines + max_splines, cl_splineSort);
+				cl_vectorizeSplines(allocated_splines, m.cols, (Short_PTR)temp_vectorized, mmgr, CL_SPLINE_COMPRESSION, 8, saveResidual);
 			}
-
-			//std::sort(splines, splines + max_splines, cl_splineSort);
-			cl_vectorizeSplines(splines, max_splines, (Short_PTR)vectorized, mmgr, CL_SPLINE_COMPRESSION, 8, true);
 		}
+		//compact
+		int index = 0;
+		for (int y = 0; y < m.rows; y++)
+			{
+				int x = 0;
+
+				int lastIndex = temp_vectorized[y * m.cols + x];
+
+				while (x < lastIndex)
+				{ 
+					vectorized[index] = temp_vectorized[y * m.cols + x];
+					x++;
+					index++;
+				}
+				
+			}
+		outputSize = index;
 		// Read Back
 		endProcess("cl_vectorize_2");
 
-		
+		endProcess("encodeCL");
+
 		if (verbose)
 		{
 			std::cout << " cl_splines:" << mmgr->validSplines << "\n";
 
-			std::cout << " Obtained size " << mmgr->final_OuputSize << " of " << m.cols * m.rows * 2 << "\n";
+			std::cout << "Final output  size " << index * 2 << "\n";
 		}
 		frameIndex++;
 
